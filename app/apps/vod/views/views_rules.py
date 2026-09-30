@@ -498,7 +498,7 @@ async def delRecord(*,
         del_lists = []
         white_paths = ['两个BT', '哔滴影视', '新浪资源', '樱花动漫',
                        'base_java_loader', 'base_spider', 'cntv央视',
-                       'test_1']
+                       '亲子精选', 'test_1']
         for fpath in paths:
             fpath = Path(os.path.join(BASE_DIR, fpath)).as_posix()
             name = os.path.basename(fpath)

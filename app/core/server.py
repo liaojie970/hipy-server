@@ -116,6 +116,13 @@ class InitializeApp(object):
             logger.info(f'本地地址: http://localhost:{settings.PORT}')
             logger.info(f'局域网地址: http://{get_host_ip()}:{settings.PORT}')
 
+            # 精选内容: 初始化后台菜单(幂等)
+            try:
+                from apps.curated.init_menu import init_curated_menus
+                init_curated_menus()
+            except Exception as e:
+                logger.warning(f'初始化精选内容菜单失败: {e}')
+
         @app.on_event('shutdown')
         async def shutdown():
             """

@@ -9,6 +9,7 @@ from .monitor import monitor_server_api, monitor_logininfor_api, monitor_job_api
 from .web import web_api
 from .report import report_api
 from .vod import vod_api, vod_rules_api, vod_configs_api, vod_houses_api, vod_subs_api
+from .curated import curated_api
 
 api_router = APIRouter()
 web_router = APIRouter()
@@ -22,6 +23,7 @@ api_router.include_router(vod_subs_api, prefix="/vods", tags=["爬虫源订阅"]
 api_router.include_router(vod_configs_api, prefix="/vods", tags=["hipy参数配置"])
 api_router.include_router(vod_houses_api, prefix="/vods", tags=["drpy源仓库"])
 api_router.include_router(vod_api, prefix="/vod", tags=["爬虫源生成"])
+api_router.include_router(curated_api, prefix="/curated", tags=["精选内容"])
 
 hiker_apis = [hiker_developer_api, hiker_rule_type_api, hiker_rule_api]
 for hiker_api in hiker_apis:

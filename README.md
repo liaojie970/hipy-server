@@ -63,6 +63,41 @@ alembic upgrade head
 | 普通用户 | user   | 123456   |
 | 道长   | hjdhnx | 123456   |
 
+### Redis 配置:
+
+本项目 Redis 仅用于登录 token / 验证码缓存。配置写在 `app/configs/.env`：
+
+| 配置项 | 说明 | 本机示例 |
+| --- | --- | --- |
+| `REDIS_HOST` | Redis 地址 | `192.168.120.153` |
+| `REDIS_PORT` | 端口 | `6379` |
+| `REDIS_DB` | 库号 | `6` |
+| `REDIS_PWD` | 密码 | `vrv@1234` |
+
+> `REDIS_PWD` 与 `REDIS_PASSWORD` 等价，填任意一个即可（`REDIS_PASSWORD` 优先）。
+> 密码含 `@` `/` `:` 等特殊字符无需手动转义，`config.getRedisURL()` 会自动 urlencode。
+
+本机当前使用的 Redis 配置：
+
+```ini
+REDIS_HOST=192.168.120.153
+REDIS_PORT=6379
+REDIS_DB=6
+REDIS_PWD=vrv@1234
+```
+
+若改回本机自带的 Redis 服务（`D:\ProgramFiles\Redis-x64-3.0.504`，`requirepass 123456`）：
+
+```ini
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_DB=3
+REDIS_PASSWORD=123456
+```
+
+> 快速自检：`python -c "import redis;print(redis.Redis(host='192.168.120.153',port=6379,db=6,password='vrv@1234').ping())"`
+> 或运行 `.\run.ps1 -Target Backend -Mode Status`，会一并显示 Redis 连接状态。
+
 ## 项目部署
 
 > 注意：

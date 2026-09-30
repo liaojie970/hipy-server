@@ -51,3 +51,8 @@ ERROR_TASK_ADD_ERROR = ErrorBase(code=4006, msg="定时任务添加失败，可�
 
 ERROR_PIP_ADD_ERROR = ErrorBase(code=5006, msg="依赖安装失败")
 ERROR_PIP_ADD_EXIST_ERROR = ErrorBase(code=5007, msg="依赖安装失败,已经安装过此依赖")
+
+# 精选内容
+ERROR_CURATED_SEARCH_ERROR = ErrorBase(code=5301, msg="搜索失败")
+ERROR_CURATED_RESOLVE_ERROR = ErrorBase(code=5302, msg="解析链接失败")
+ERROR_CURATED_PLAY_ERROR = ErrorBase(code=5303, msg="获取播放地址失败")

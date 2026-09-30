@@ -21,3 +21,6 @@
 /app/t4/spiders/log/
 /app/t4/files/txt/mytv.txt
 /app/t4/files/txt/tv.txt
+
+# run.ps1 运行日志/进程文件
+/logs/

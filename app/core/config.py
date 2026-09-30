@@ -7,7 +7,7 @@ from core import constants
 from pydantic import AnyHttpUrl, BaseSettings, IPvAnyAddress, BaseModel, FilePath
 from pydantic.env_settings import env_file_sentinel
 # from pymongo import MongoClient
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, quote
 from pathlib import Path
 
 
@@ -64,14 +64,22 @@ class Settings(BaseSettings):
     # redis
     REDIS_HOST: str  # Redis Host地址
     REDIS_PASSWORD: Optional[str] = None  # Redis 密码
+    REDIS_PWD: Optional[str] = None  # Redis 密码(别名, 与 REDIS_PASSWORD 等价, 便于兼容外部配置)
     REDIS_DB: int = 0  # 选择Redis数据库
     REDIS_PORT: int = 6379  # Redis端口
+
+    @property
+    def redis_password(self) -> Optional[str]:
+        """REDIS_PASSWORD 优先, 兼容 REDIS_PWD 写法"""
+        return self.REDIS_PASSWORD or self.REDIS_PWD
 
     def getRedisURL(self):
         """
         获取redis连接语句
+        注意: 密码中的特殊字符(@ / : 等)会被 urlencode, 否则会破坏 URL 结构
         """
-        pwd = f':{self.REDIS_PASSWORD}@' if self.REDIS_PASSWORD else ""
+        pwd = self.redis_password
+        pwd = f':{quote(pwd, safe="")}@' if pwd else ""
         return f"redis://{pwd}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}?encoding=utf-8"
 
     # celery
@@ -142,6 +150,9 @@ class Settings(BaseSettings):
 
     # 代理
     IP_AGENTS = [""]
+    # 服务端强制使用的 HTTP 代理(可选)。填写后会覆盖 HTTP_PROXY/HTTPS_PROXY 环境变量,
+    # 用于规避 IDE/父进程注入的错误代理导致请求卡死。示例: http://127.0.0.1:7897
+    SERVER_PROXY: str = ""
     # pip依赖代理
     PIP_PROXY = "https://mirrors.cloud.tencent.com/pypi/simple"
     DEFAULT_SNIFFER = 'selenium'  # selenium,hipy-sniffer,playwright 三选一
@@ -157,3 +168,25 @@ settings = Settings(
     _env_file=constants.DEFAULT_ENV_FILE if os.path.exists(constants.DEFAULT_ENV_FILE) else env_file_sentinel,
     _env_file_encoding='utf-8'
 )
+
+
+def _apply_server_proxy() -> None:
+    """若配置了 SERVER_PROXY, 则用它覆盖系统/环境代理。
+
+    场景: 某些 IDE/父进程会注入不可用的 HTTP_PROXY(如 127.0.0.1:17890),
+    导致 requests 卡住超时。此时在 .env 里配 SERVER_PROXY 即可强制修正。
+    """
+    proxy = (getattr(settings, 'SERVER_PROXY', '') or '').strip()
+    if not proxy:
+        return
+    for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
+        os.environ[key] = proxy
+    # 确保本地地址始终直连
+    no_proxy = os.environ.get('NO_PROXY', '') or os.environ.get('no_proxy', '')
+    if '127.0.0.1' not in no_proxy:
+        merged = ','.join(x for x in [no_proxy, 'localhost,127.0.0.1'] if x)
+        os.environ['NO_PROXY'] = merged
+        os.environ['no_proxy'] = merged
+
+
+_apply_server_proxy()
