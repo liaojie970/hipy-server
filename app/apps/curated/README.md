@@ -110,3 +110,33 @@ http://<你的局域网IP>:5707/config/0?sub=<订阅码>
 - 若环境变量里的代理是坏的（例如被设成 `127.0.0.1:17890` 但真实代理是 `7897`），会导致请求卡住超时。
   此时请在「站点管理」里显式填代理，或修好环境变量。
 - `proxy=none` 可强制直连（适用于能直连 B 站的服务器/网络）。
+
+## 单元测试
+
+后端（`app/` 目录下执行，使用独立的临时 SQLite，不会碰到真实的 `db/hipy.db`）：
+
+```bash
+../venv/Scripts/python.exe -m pip install -r requirements-dev.txt   # 首次: 装 pytest
+../venv/Scripts/python.exe -m pytest
+```
+
+覆盖内容：
+
+| 文件 | 覆盖点 |
+| --- | --- |
+| `tests/test_curated_dedup.py` | 三层去重：应用层 upsert、软删除复活（id 不变）、数据库唯一约束、并发撞约束回滚改更新、批量入库的跳过/刷新/失败分支、搜索「已入库」标注、运行时只返回审核通过的媒体 |
+| `tests/test_curated_episodes.py` | 选集覆盖式替换、**单次 commit**（回归 1000 集慢的坑）、排序与缺省值兜底 |
+| `tests/test_curated_unique_index.py` | 老库去重迁移（活跃优先 / id 最小）、幂等性、建索引后拒绝重复、全新库自带约束 |
+| `tests/test_curated_utils.py` | config 解析/序列化、`_is_active`、站点代理优先级（防 IDE 注入死代理）、站点注册表 |
+
+`conftest.py` 会在导入任何 app 模块**之前**把 `SQLALCHEMY_ENGINE=sqlite`、`SQL_DATABASE=hipy_test_<pid>` 写入环境变量，
+并用 `FakeProvider` 替换真实站点适配器，因此测试**完全不联网**。会话结束后自动删除临时库文件。
+
+前端（`hipy-ui/dashboard` 目录下执行）：
+
+```bash
+npm run test:unit        # jest
+```
+
+覆盖内容：`tests/unit/utils/dedupe.spec.js`（去重键计算：幂等方法/FormData 跳过、acquire/release 生命周期）
+与 `tests/unit/utils/requestDedupe.spec.js`（与 axios 拦截器集成：并发相同 POST 只发一次、失败后释放、GET 与上传不去重）。
