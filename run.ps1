@@ -21,6 +21,7 @@
 
 .PARAMETER Target
     操作对象：Backend | Frontend | Nginx | All（默认 All）。
+    注意：All = Backend + Frontend，不包含 Nginx；Nginx 需显式指定 -Target Nginx。
 
 .PARAMETER Mode
     操作类型：Build | Start | BuildStart | Stop | Restart | Status（默认 BuildStart）。
@@ -151,7 +152,15 @@ function Get-BackendPort {
     $envFile = Join-Path $AppDir 'configs\.env'
     if (Test-Path $envFile) {
         $line = Select-String -Path $envFile -Pattern '^\s*PORT\s*=' | Select-Object -First 1
-        if ($line) { $port = [int](($line.Line -split '=', 2)[1].Trim()) }
+        if ($line) {
+            $raw = (($line.Line -split '=', 2)[1] -replace '#.*$', '').Trim().Trim('"').Trim("'")
+            $parsed = 0
+            if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -gt 0 -and $parsed -lt 65536) {
+                $port = $parsed
+            } else {
+                Write-Host "  [警告] 无法解析 configs\.env 中的 PORT='$raw'，使用默认 $port" -ForegroundColor Yellow
+            }
+        }
     }
     return $port
 }
@@ -176,13 +185,16 @@ function Write-Warn { param([string]$Text) Write-Host "  $Text" -ForegroundColor
 
 function Set-ProxyEnv {
     if ($NoProxy) {
-        foreach ($n in 'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy') {
+        foreach ($n in 'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy') {
             Remove-Item "Env:$n" -ErrorAction SilentlyContinue
         }
     } else {
         $env:HTTP_PROXY  = $Proxy
         $env:HTTPS_PROXY = $Proxy
+        $env:http_proxy  = $Proxy
+        $env:https_proxy = $Proxy
         $env:NO_PROXY    = 'localhost,127.0.0.1'
+        $env:no_proxy    = 'localhost,127.0.0.1'
     }
 }
 
@@ -204,6 +216,12 @@ function Get-ListenPids {
     } catch {
         return @()
     }
+}
+
+function Test-PortListening {
+    param([int]$Port)
+    $pids = Get-ListenPids -Port $Port
+    return [bool]($pids -and $pids.Count -gt 0)
 }
 
 function Stop-ByPort {
@@ -229,8 +247,47 @@ function Show-PortStatus {
     if ($pids -and $pids.Count -gt 0) {
         Write-Host "  [运行] $Name  ($Url, PID $($pids -join ','))" -ForegroundColor Green
     } else {
-        Write-Host "  [停止] $Name  ($Url)" -ForegroundColor DarkGray
+        Write-Host "  [未运行] $Name  ($Url)" -ForegroundColor DarkGray
     }
+}
+
+function Wait-PortListening {
+    # 轮询等待端口监听，避免固定 sleep 过早判定为未启动
+    param([int]$Port, [int]$TimeoutSec = 30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-PortListening -Port $Port) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
+function Get-FrontendLogPort {
+    # 从前端启动日志解析 dev server 实际端口（默认端口被占用时 vue-cli 会自动换端口）
+    $log = Join-Path $LogDir 'frontend.out.log'
+    if (-not (Test-Path $log)) { return $null }
+    try {
+        $m = Select-String -Path $log -Pattern '(?:localhost|127\.0\.0\.1):(\d+)' -AllMatches |
+            ForEach-Object { $_.Matches } | Select-Object -Last 1
+        if ($m) {
+            $p = 0
+            if ([int]::TryParse($m.Groups[1].Value, [ref]$p) -and $p -gt 0 -and $p -lt 65536) { return $p }
+        }
+    } catch { }
+    return $null
+}
+
+function Resolve-FrontendPort {
+    # 优先返回日志中记录且正在监听的端口，否则回退默认端口
+    $p = Get-FrontendLogPort
+    if ($p -and (Test-PortListening -Port $p)) { return $p }
+    return $FrontendPort
+}
+
+function Stop-Frontend {
+    $p = Resolve-FrontendPort
+    Stop-ByPort -Port $p -Name '前端'
+    if ($p -ne $FrontendPort) { Stop-ByPort -Port $FrontendPort -Name '前端' }
 }
 
 function Get-EnvValue {
@@ -279,9 +336,20 @@ function Start-Background {
     $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
         -WorkingDirectory $WorkingDirectory -WindowStyle Hidden `
         -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
-    $p.Id | Set-Content -Path (Join-Path $LogDir "$Name.pid") -Encoding ASCII
     Write-Ok "$Name 已后台启动 (PID $($p.Id))，日志：$out"
     return $p
+}
+
+function Save-ListenPid {
+    # 记录真正监听端口的进程 PID（启动器可能是子进程，直接用 Start-Process 的 PID 会误导）
+    param([int]$Port, [string]$Name)
+    $pidFile = Join-Path $LogDir "$Name.pid"
+    $pids = Get-ListenPids -Port $Port
+    if ($pids -and $pids.Count -gt 0) {
+        ($pids -join "`r`n") | Set-Content -Path $pidFile -Encoding ASCII
+    } else {
+        Remove-Item $pidFile -ErrorAction SilentlyContinue
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -290,6 +358,7 @@ function Start-Background {
 function Build-Backend {
     Write-Step '编译后端 (语法检查)'
     $py = Resolve-Python
+    Set-ProxyEnv
     if ($Install) {
         Write-Host "  pip install -r requirements.txt" -ForegroundColor DarkGray
         & $py -m pip install -r (Join-Path $AppDir 'requirements.txt')
@@ -312,7 +381,10 @@ function Start-Backend {
     Set-ProxyEnv
     Start-Background -FilePath $py -ArgumentList @('main.py') `
         -WorkingDirectory $AppDir -Name 'backend' | Out-Null
-    Start-Sleep -Seconds 4
+    if (-not (Wait-PortListening -Port $BackendPort -TimeoutSec 30)) {
+        Write-Warn "后端 30 秒内未监听端口 $BackendPort，请检查日志：$(Join-Path $LogDir 'backend.err.log')"
+    }
+    Save-ListenPid -Port $BackendPort -Name 'backend'
     Show-PortStatus -Port $BackendPort -Name '后端' -Url "http://127.0.0.1:$BackendPort"
 }
 
@@ -366,12 +438,24 @@ function Start-Frontend {
     Set-ProxyEnv
     Set-NodeCompat
     $npmCmd = if ($FrontendMode -eq 'Prod') { 'run preview' } else { 'run dev' }
-    Write-Step "启动前端 ($FrontendMode, 端口 $FrontendPort)"
-    Stop-ByPort -Port $FrontendPort -Name '前端'
+    Write-Step "启动前端 ($FrontendMode, 默认端口 $FrontendPort)"
+    Stop-Frontend
     Start-Background -FilePath 'cmd.exe' -ArgumentList @('/c', "npm $npmCmd") `
         -WorkingDirectory $FrontendDir -Name 'frontend' | Out-Null
-    Start-Sleep -Seconds 8
-    Show-PortStatus -Port $FrontendPort -Name '前端' -Url "http://localhost:$FrontendPort"
+    # 端口被占用时 vue-cli 会自动换端口，轮询日志解析实际端口
+    $resolvedPort = $FrontendPort
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+        $lp = Get-FrontendLogPort
+        if ($lp -and (Test-PortListening -Port $lp)) { $resolvedPort = $lp; break }
+        if (Test-PortListening -Port $FrontendPort) { $resolvedPort = $FrontendPort; break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not (Test-PortListening -Port $resolvedPort)) {
+        Write-Warn "前端 60 秒内未监听端口，请检查日志：$(Join-Path $LogDir 'frontend.err.log')"
+    }
+    Save-ListenPid -Port $resolvedPort -Name 'frontend'
+    Show-PortStatus -Port $resolvedPort -Name '前端' -Url "http://localhost:$resolvedPort"
 }
 
 # ---------------------------------------------------------------------------
@@ -421,7 +505,7 @@ function Restart-Nginx {
 
 function Show-NginxStatus {
     if (Test-NginxRunning) { Write-Host '  [运行] nginx' -ForegroundColor Green }
-    else { Write-Host '  [停止] nginx' -ForegroundColor DarkGray }
+    else { Write-Host '  [未运行] nginx' -ForegroundColor DarkGray }
 }
 
 # ---------------------------------------------------------------------------
@@ -459,19 +543,19 @@ switch ($Mode) {
         if ($doNginx)    { Start-Nginx }
     }
     'Stop' {
-        if ($doBackend)  { Write-Step '停止后端';  Stop-ByPort -Port $BackendPort  -Name '后端' }
-        if ($doFrontend) { Write-Step '停止前端';  Stop-ByPort -Port $FrontendPort -Name '前端' }
+        if ($doBackend)  { Write-Step '停止后端';  Stop-ByPort -Port $BackendPort -Name '后端' }
+        if ($doFrontend) { Write-Step '停止前端';  Stop-Frontend }
         if ($doNginx)    { Stop-Nginx }
     }
     'Restart' {
         if ($doBackend)  { Write-Step '停止后端'; Stop-ByPort -Port $BackendPort -Name '后端'; Start-Backend }
-        if ($doFrontend) { Write-Step '停止前端'; Stop-ByPort -Port $FrontendPort -Name '前端'; Start-Frontend }
+        if ($doFrontend) { Write-Step '停止前端'; Stop-Frontend; Start-Frontend }
         if ($doNginx)    { Restart-Nginx }
     }
     'Status' {
         Write-Step '运行状态'
-        if ($doBackend)  { Show-PortStatus -Port $BackendPort  -Name '后端' -Url "http://127.0.0.1:$BackendPort" }
-        if ($doFrontend) { Show-PortStatus -Port $FrontendPort -Name '前端' -Url "http://localhost:$FrontendPort" }
+        if ($doBackend)  { Show-PortStatus -Port $BackendPort -Name '后端' -Url "http://127.0.0.1:$BackendPort" }
+        if ($doFrontend) { $fp = Resolve-FrontendPort; Show-PortStatus -Port $fp -Name '前端' -Url "http://localhost:$fp" }
         if ($doBackend)  { Show-RedisStatus }
         if ($doNginx)    { Show-NginxStatus }
     }
