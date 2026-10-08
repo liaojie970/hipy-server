@@ -21,7 +21,11 @@ def registerRedis(app: FastAPI) -> None:
         获取链接
         :return:
         """
-        app.state.redis = await aioredis.from_url(settings.getRedisURL())
+        app.state.redis = await aioredis.from_url(
+            settings.getRedisURL(),
+            socket_connect_timeout=3,
+            socket_timeout=5,
+        )
 
     @app.on_event('shutdown')
     async def shutdown_event():
@@ -38,5 +42,9 @@ def get_redis() -> redis.Redis:
 
     :return redis.Redis
     """
-    pool = redis.ConnectionPool.from_url(settings.getRedisURL())
+    pool = redis.ConnectionPool.from_url(
+        settings.getRedisURL(),
+        socket_connect_timeout=3,
+        socket_timeout=5,
+    )
     return redis.Redis(connection_pool=pool)

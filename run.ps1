@@ -8,8 +8,8 @@
 
     默认端口：
         后端        http://127.0.0.1:5707   (取自 app\configs\.env 的 PORT)
-        前端 Dev    http://localhost:9527
-        前端 Prod   http://localhost:9526   (npm run preview, 需先构建)
+        前端 Dev    http://localhost:8080
+        前端 Prod   http://localhost:8081   (npm run preview, 需先构建)
 
     说明：
         - 后端「编译」= python -m compileall 语法检查；加 -Install 时先 pip install。
@@ -67,11 +67,11 @@
 
 .EXAMPLE
     .\run.ps1 -Target Frontend -Mode BuildStart -FrontendMode Prod
-    构建前端生产包并本地预览（http://localhost:9526）。
+    构建前端生产包并本地预览（http://localhost:8081）。
 
 .EXAMPLE
     .\run.ps1 -Target Frontend -Mode Start
-    只启动前端(Dev, http://localhost:9527)。
+    只启动前端(Dev, http://localhost:8080)。
 
 .EXAMPLE
     .\run.ps1 -Mode Stop
@@ -164,7 +164,7 @@ function Resolve-Python {
 }
 
 $BackendPort  = Get-BackendPort
-$FrontendPort = if ($FrontendMode -eq 'Prod') { 9526 } else { 9527 }
+$FrontendPort = if ($FrontendMode -eq 'Prod') { 8081 } else { 8080 }
 $NginxExe     = Join-Path $NginxDir 'nginx.exe'
 
 # ---------------------------------------------------------------------------

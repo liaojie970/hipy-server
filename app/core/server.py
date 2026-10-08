@@ -123,6 +123,13 @@ class InitializeApp(object):
             except Exception as e:
                 logger.warning(f'初始化精选内容菜单失败: {e}')
 
+            # 精选内容: 初始化运行时源规则(幂等)
+            try:
+                from apps.curated.init_source import init_curated_source
+                init_curated_source()
+            except Exception as e:
+                logger.warning(f'初始化精选内容源规则失败: {e}')
+
         @app.on_event('shutdown')
         async def shutdown():
             """

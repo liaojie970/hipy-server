@@ -41,7 +41,7 @@ def init_curated_menus() -> None:
     db = SessionLocal()
     try:
         parent_id = _ensure_menu(db, name='Curated', path='/curated', component='',
-                                 title='精选内容', icon='education', order_num=5, parent_id=0)
+                                 title='精选内容', icon='education', order_num=7, parent_id=0)
         menu_ids = [parent_id]
         for name, path, component, title, icon, order in CHILD_MENUS:
             menu_ids.append(_ensure_menu(db, name=name, path=path, component=component,

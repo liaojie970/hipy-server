@@ -1600,26 +1600,21 @@ INSERT INTO "public"."t_menus" VALUES (11, '2023-12-02 18:06:51', 0, '2023-12-07
 INSERT INTO "public"."t_menus" VALUES (10, '2023-12-02 18:05:43', 0, '2023-12-02 18:05:43', 0, 0, '/hiker', '', 'f', 'f', 0, 3, '', '海阔视界', 'international', 't', 0);
 INSERT INTO "public"."t_menus" VALUES (12, '2023-12-02 23:23:55', 1, '2023-12-07 22:10:55', 1, 0, 'rule_type', '/hiker/rule_type/index', 'f', 'f', 0, 2, 'HikerRuleType', '规则类型', 'component', 't', 10);
 INSERT INTO "public"."t_menus" VALUES (13, '2023-12-03 19:03:50', 1, '2023-12-07 22:11:07', 1, 0, 'rule', '/hiker/rule/index', 'f', 'f', 0, 3, 'HikerRule', '规则', 'list', 't', 10);
-INSERT INTO "public"."t_menus" VALUES (14, '2023-12-04 21:49:25', 1, '2023-12-04 21:49:25', 0, 0, 'control_panel', '/control_panel/index', 'f', 'f', 0, 4, 'ControlPanel', '控制面板', 'swagger', 't', 2);
-INSERT INTO "public"."t_menus" VALUES (15, '2023-12-05 08:49:37', 1, '2023-12-05 08:50:03', 1, 0, '/tool', '', 'f', 'f', 0, 4, '', '工具', 'bug', 't', 0);
+INSERT INTO "public"."t_menus" VALUES (14, '2023-12-04 21:49:25', 1, '2023-12-04 21:49:25', 0, 0, 'control_panel', '/control_panel/index', 'f', 'f', 0, 5, 'ControlPanel', '控制面板', 'swagger', 't', 2);
+INSERT INTO "public"."t_menus" VALUES (15, '2023-12-05 08:49:37', 1, '2023-12-05 08:50:03', 1, 0, '/tool', '', 'f', 'f', 0, 5, '', '工具管理', 'bug', 't', 0);
 INSERT INTO "public"."t_menus" VALUES (16, '2023-12-05 08:51:06', 1, '2023-12-05 08:52:00', 1, 0, 'swagger', '/tool/swagger/index', 'f', 'f', 0, 1, 'Swagger', 'swagger', 'swagger', 't', 15);
-INSERT INTO "public"."t_menus" VALUES (17, '2023-12-05 09:08:13', 1, '2023-12-06 22:50:59', 1, 0, '/monitor', '', 'f', 'f', 0, 4, '', '系统监控', 'monitor', 't', 0);
+INSERT INTO "public"."t_menus" VALUES (17, '2023-12-05 09:08:13', 1, '2023-12-06 22:50:59', 1, 0, '/monitor', '', 'f', 'f', 0, 6, '', '系统监控', 'monitor', 't', 0);
 INSERT INTO "public"."t_menus" VALUES (18, '2023-12-05 09:09:57', 1, '2023-12-07 00:03:28', 1, 0, 'job', '/monitor/job/index', 'f', 'f', 0, 2, 'Job', '定时任务', 'time-range', 't', 17);
 INSERT INTO "public"."t_menus" VALUES (19, '2023-12-05 09:11:12', 1, '2023-12-07 00:03:23', 1, 0, 'server', '/monitor/server/index', 'f', 'f', 0, 1, 'Server', '服务监控', 'server', 't', 17);
-INSERT INTO "public"."t_menus" VALUES (20, '2023-12-06 22:49:09', 1, '2023-12-06 22:49:09', 0, 0, 'blog', '/tool/blog/index', 'f', 'f', 0, 2, 'Blog', '博客', 'log', 't', 15);
-INSERT INTO "public"."t_menus" VALUES (21, '2023-12-06 22:53:25', 1, '2023-12-15 00:17:28', 1, 0, 'online', '/monitor/online/index', 'f', 't', 0, 6, 'Online', '在线用户', 'online', 't', 17);
-INSERT INTO "public"."t_menus" VALUES (22, '2023-12-06 22:55:02', 1, '2023-12-15 00:17:17', 1, 0, 'cache', ' /monitor/cache/index', 'f', 't', 0, 5, '', '缓存监控', 'redis', 't', 17);
+INSERT INTO "public"."t_menus" VALUES (22, '2023-12-06 22:55:02', 1, '2023-12-15 00:17:17', 1, 0, 'cache', '/monitor/cache/index', 'f', 't', 0, 6, '', '缓存监控', 'redis', 't', 17);
 INSERT INTO "public"."t_menus" VALUES (23, '2023-12-06 22:56:00', 1, '2023-12-15 00:17:23', 1, 0, 'cacheList', '/monitor/cache/list', 'f', 'f', 0, 5, 'cacheList', '缓存列表', 'redis-list', 't', 17);
-INSERT INTO "public"."t_menus" VALUES (24, '2023-12-06 23:22:16', 1, '2023-12-06 23:22:16', 0, 0, 'icons', '/components/icons/index', 'f', 'f', 0, 3, 'Icons', '图标组件', 'icon', 't', 15);
-INSERT INTO "public"."t_menus" VALUES (25, '2023-12-06 23:33:18', 1, '2023-12-06 23:37:20', 1, 0, 'build', '/tool/build/index', 'f', 'f', 0, 1, 'Build', '表单构建', 'build', 't', 15);
 INSERT INTO "public"."t_menus" VALUES (26, '2023-12-07 22:06:50', 1, '2023-12-07 22:16:07', 1, 0, 'developer/:id(\d+)', '/hiker/developer/index', 'f', 't', 0, 1, 'DeveloperDetail', '开发者详情', 'peoples', 't', 10);
 INSERT INTO "public"."t_menus" VALUES (27, '2023-12-07 22:09:16', 1, '2023-12-07 22:16:02', 1, 0, 'rule_type/:id(\d+)', '/hiker/rule_type/index', 'f', 't', 0, 2, 'RuleTypeDetail', '规则类型详情', 'component', 't', 10);
 INSERT INTO "public"."t_menus" VALUES (28, '2023-12-07 22:56:42', 1, '2023-12-15 00:16:45', 1, 0, 'logininfor', '/monitor/logininfor/index', 'f', 'f', 0, 3, 'LoginInfor', '登录日志', 'people', 't', 17);
-INSERT INTO "public"."t_menus" VALUES (29, '2023-12-11 20:39:10', 1, '2023-12-11 20:42:25', 1, 1, 'control_panel1', '/hello', 'f', 'f', 0, 1, '', 'hello world', 'clipboard', 't', 7);
 INSERT INTO "public"."t_menus" VALUES (30, '2023-12-13 22:44:56', 1, '2023-12-15 00:16:50', 1, 0, 'pip', '/monitor/pip/index', 'f', 'f', 0, 4, 'Pip', '依赖管理', 'list', 't', 17);
-INSERT INTO "public"."t_menus" VALUES (31, '2023-12-15 00:11:11', 1, '2023-12-15 00:17:03', 1, 0, 'job-log/:id(\d+)', '/monitor/job/log', 'f', 't', 0, 2, 'JobLog', '定时任务执行日志', 'log', 't', 17);
+INSERT INTO "public"."t_menus" VALUES (31, '2023-12-15 00:11:11', 1, '2023-12-15 00:17:03', 1, 0, 'job-log/:id(\d+)', '/monitor/job/log', 'f', 't', 0, 7, 'JobLog', '定时任务执行日志', 'log', 't', 17);
 INSERT INTO "public"."t_menus" VALUES (32, '2023-12-15 00:36:18', 1, '2023-12-15 00:36:18', 0, 0, 'xfgpt', '/tool/xfgpt/index', 'f', 'f', 0, 4, 'XfGpt', '讯飞GPT', 'example', 't', 15);
-INSERT INTO "public"."t_menus" VALUES (34, '2024-01-14 16:22:36.889797', 1, '2024-01-14 16:22:53.497814', 1, 0, '/vod', '', 'f', 'f', 0, 3, '', 'hipy源', 'education', 't', 0);
+INSERT INTO "public"."t_menus" VALUES (34, '2024-01-14 16:22:36.889797', 1, '2024-01-14 16:22:53.497814', 1, 0, '/vod', '', 'f', 'f', 0, 4, '', '视频源管理', 'education', 't', 0);
 INSERT INTO "public"."t_menus" VALUES (35, '2024-01-14 16:23:36.380029', 1, '2024-01-14 16:24:07.355086', 1, 0, 'rules', '/vod/rules/index', 'f', 'f', 0, 1, 'VodRules', '源管理', 'list', 't', 34);
 INSERT INTO "public"."t_menus" VALUES (41, '2024-02-27 16:24:14.004865', 1, '2024-02-27 16:24:14.004865', 0, 0, 'index', '/vod/web/home/category', 'f', 't', 0, 1, 'VodWebIndex', 'CMS首页', 'international', 't', 39);
 INSERT INTO "public"."t_menus" VALUES (42, '2024-02-27 16:24:59.465788', 1, '2024-02-27 16:24:59.465788', 0, 0, 'category', '/vod/web/home/category', 'f', 't', 0, 2, 'VodWebCategory', 'CMS分类页', 'nested', 't', 39);
@@ -1630,7 +1625,7 @@ INSERT INTO "public"."t_menus" VALUES (36, '2024-01-14 16:44:59.020793', 1, '202
 INSERT INTO "public"."t_menus" VALUES (37, '2024-01-21 08:39:35.602841', 1, '2024-06-19 09:52:59.28837', 1, 0, 'rules_edit/:id(\d+)', '/vod/rules/edit', 'f', 't', 0, 4, 'VodRulesEdit', '在线编辑源', 'code', 't', 34);
 INSERT INTO "public"."t_menus" VALUES (38, '2024-02-19 13:58:41.826335', 1, '2024-06-19 09:53:08.519928', 1, 0, 'houses', '/vod/houses/index', 'f', 'f', 0, 5, 'VodHouses', '源仓库', 'shopping', 't', 34);
 INSERT INTO "public"."t_menus" VALUES (39, '2024-02-21 17:21:06.123879', 1, '2024-06-19 09:53:12.201774', 1, 0, 'web', '/vod/web/index', 'f', 'f', 0, 6, 'VodWeb', '在线预览', 'international', 't', 34);
-INSERT INTO "public"."t_menus" VALUES (45, '2024-07-06 00:16:58.3738', 1, '2024-07-06 00:16:58.3738', 0, 0, 'liveTool', '/tool/liveTool/index', 'f', 'f', 0, 10, 'liveTool', '直播工具', 'form', 't', 34);
+INSERT INTO "public"."t_menus" VALUES (45, '2024-07-06 00:16:58.3738', 1, '2024-07-06 00:16:58.3738', 0, 0, 'liveTool', '/tool/liveTool/index', 'f', 'f', 0, 3, 'liveTool', '直播工具', 'form', 't', 15);
 
 -- ----------------------------
 -- Table structure for t_perm_label
@@ -1834,10 +1829,7 @@ INSERT INTO "public"."t_role_menu" VALUES (234, '2024-07-21 07:28:38.035412', 1,
 INSERT INTO "public"."t_role_menu" VALUES (235, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 18);
 INSERT INTO "public"."t_role_menu" VALUES (236, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 30);
 INSERT INTO "public"."t_role_menu" VALUES (237, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 15);
-INSERT INTO "public"."t_role_menu" VALUES (238, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 25);
 INSERT INTO "public"."t_role_menu" VALUES (239, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 16);
-INSERT INTO "public"."t_role_menu" VALUES (240, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 20);
-INSERT INTO "public"."t_role_menu" VALUES (241, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 24);
 INSERT INTO "public"."t_role_menu" VALUES (242, '2024-07-21 07:28:38.035412', 1, '2024-07-21 07:28:38.035412', 0, 0, 2, 32);
 INSERT INTO "public"."t_role_menu" VALUES (264, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 2);
 INSERT INTO "public"."t_role_menu" VALUES (265, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 8);
@@ -1854,12 +1846,8 @@ INSERT INTO "public"."t_role_menu" VALUES (275, '2024-07-21 07:45:01.427983', 1,
 INSERT INTO "public"."t_role_menu" VALUES (276, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 18);
 INSERT INTO "public"."t_role_menu" VALUES (277, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 28);
 INSERT INTO "public"."t_role_menu" VALUES (278, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 30);
-INSERT INTO "public"."t_role_menu" VALUES (279, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 21);
 INSERT INTO "public"."t_role_menu" VALUES (280, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 15);
-INSERT INTO "public"."t_role_menu" VALUES (281, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 25);
 INSERT INTO "public"."t_role_menu" VALUES (282, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 16);
-INSERT INTO "public"."t_role_menu" VALUES (283, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 20);
-INSERT INTO "public"."t_role_menu" VALUES (284, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 24);
 INSERT INTO "public"."t_role_menu" VALUES (285, '2024-07-21 07:45:01.427983', 1, '2024-07-21 07:45:01.427983', 0, 0, 3, 32);
 
 -- ----------------------------

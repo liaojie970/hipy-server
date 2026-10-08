@@ -69,33 +69,38 @@ alembic upgrade head
 
 | 配置项 | 说明 | 本机示例 |
 | --- | --- | --- |
-| `REDIS_HOST` | Redis 地址 | `192.168.120.153` |
+| `REDIS_HOST` | Redis 地址 | `127.0.0.1` |
 | `REDIS_PORT` | 端口 | `6379` |
-| `REDIS_DB` | 库号 | `6` |
-| `REDIS_PWD` | 密码 | `vrv@1234` |
+| `REDIS_DB` | 库号 | `3` |
+| `REDIS_PWD` | 密码 | `123456` |
 
 > `REDIS_PWD` 与 `REDIS_PASSWORD` 等价，填任意一个即可（`REDIS_PASSWORD` 优先）。
 > 密码含 `@` `/` `:` 等特殊字符无需手动转义，`config.getRedisURL()` 会自动 urlencode。
 
-本机当前使用的 Redis 配置：
-
-```ini
-REDIS_HOST=192.168.120.153
-REDIS_PORT=6379
-REDIS_DB=6
-REDIS_PWD=vrv@1234
-```
-
-若改回本机自带的 Redis 服务（`D:\ProgramFiles\Redis-x64-3.0.504`，`requirepass 123456`）：
+本机当前使用的 Redis 配置（本地自带 Redis 服务，`requirepass 123456`）：
 
 ```ini
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_DB=3
 REDIS_PASSWORD=123456
+REDIS_PWD=123456
 ```
 
-> 快速自检：`python -c "import redis;print(redis.Redis(host='192.168.120.153',port=6379,db=6,password='vrv@1234').ping())"`
+若需连接远程 Redis（示例）：
+
+```ini
+REDIS_HOST=192.168.120.153
+REDIS_PORT=6379
+REDIS_DB=6
+REDIS_PASSWORD=vrv@1234
+REDIS_PWD=vrv@1234
+```
+
+> ⚠️ 务必使用**本机可达**的 Redis。若指向不可达地址，连接会阻塞请求，尤其当 Redis 无响应时会导致接口 500 / 超时，甚至整站卡死。
+> 连接池已配置 `socket_connect_timeout=3` / `socket_timeout=5`（见 `app/db/cache.py`），可在 Redis 故障时快速失败而非拖死服务。
+
+> 快速自检：`python -c "import redis;print(redis.Redis(host='127.0.0.1',port=6379,db=3,password='123456').ping())"`
 > 或运行 `.\run.ps1 -Target Backend -Mode Status`，会一并显示 Redis 连接状态。
 
 ## 项目部署

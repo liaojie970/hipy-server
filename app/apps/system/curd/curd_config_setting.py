@@ -44,7 +44,8 @@ class CURDConfigSetting(CRUDBase):
             return json.loads(res)
         res = self.getByKey(db, key=key)
         await r.setex(_key, self.EXPIRE_TIME, json.dumps(res))
-        await r.setex(self.CACHE_ID_KEY + str(res['id']), self.EXPIRE_TIME, key)
+        if res.get('id'):
+            await r.setex(self.CACHE_ID_KEY + str(res['id']), self.EXPIRE_TIME, key)
         return res
 
     async def deleteCacheByID(self, r: asyncRedis, _id: int):

@@ -382,6 +382,17 @@ class CuratedService:
         with _session(db) as _db:
             rec = curd_vod_subs.getByName(_db, name)
             if rec:
+                # 已存在则强制校正, 否则 mode/reg 不对会导致 /config 过滤失效(返回全部源)
+                fix = {}
+                if rec.reg != reg:
+                    fix['reg'] = reg
+                if rec.mode != 0:
+                    fix['mode'] = 0
+                if rec.status != 1:
+                    fix['status'] = 1
+                if fix:
+                    curd_vod_subs.update(_db, _id=rec.id, obj_in=fix)
+                    rec = curd_vod_subs.getByName(_db, name)
                 return {'code': rec.code, 'name': rec.name, 'reg': rec.reg,
                         'mode': rec.mode, 'created': False}
             final_code = code

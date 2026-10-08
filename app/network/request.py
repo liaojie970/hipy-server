@@ -8,8 +8,29 @@ Created on 2023-05-05 17:28
 """
 import httpx
 import random
+import inspect
 from core.config import settings
 from utils import define
+
+
+def _supports_proxies_arg(client_cls) -> bool:
+    """httpx <0.28 支持 proxies= 参数, 0.28+ 已移除"""
+    try:
+        return 'proxies' in inspect.signature(client_cls.__init__).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _build_proxy_kwargs(proxies, is_async: bool) -> dict:
+    """兼容 httpx 0.23(proxies=) 与 0.28+(mounts=/proxy=) 两种 API"""
+    proxies = {k: v for k, v in (proxies or {}).items() if v}
+    if not proxies:
+        return {}
+    client_cls = httpx.AsyncClient if is_async else httpx.Client
+    if _supports_proxies_arg(client_cls):
+        return {"proxies": proxies}
+    transport_cls = httpx.AsyncHTTPTransport if is_async else httpx.HTTPTransport
+    return {"mounts": {scheme: transport_cls(proxy=url) for scheme, url in proxies.items()}}
 
 
 class Request:
@@ -110,7 +131,7 @@ class Request:
             }
         else:
             proxies = self.__dict__.get("proxies", {})
-        async with httpx.AsyncClient(proxies=proxies) as session:
+        async with httpx.AsyncClient(**_build_proxy_kwargs(proxies, True)) as session:
             response = await session.request(method=self.method, url=self.url, **self.requests_kwargs)
             return response
 
@@ -122,5 +143,5 @@ class Request:
             }
         else:
             proxies = self.__dict__.get("proxies", {})
-        response = httpx.Client(proxies=proxies).request(method=self.method, url=self.url, **self.requests_kwargs)
+        response = httpx.Client(**_build_proxy_kwargs(proxies, False)).request(method=self.method, url=self.url, **self.requests_kwargs)
         return response

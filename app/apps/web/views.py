@@ -441,12 +441,18 @@ async def hipy_configs(*,
             # render_text = render_template_string(render_text, **context)
             # return Response(status_code=200, media_type='text/plain', content=render_text)
             if sub_info:
-                if sub_info.get('mode') == 0:
+                # mode 为空时按正向匹配(0)处理, 避免"mode 为空 -> 不过滤 -> 返回全部源"
+                sub_mode = sub_info.get('mode')
+                if sub_mode is None:
+                    sub_mode = 0
+                # reg 为空时不再放行全部: 正向匹配视为无命中, 反向排除视为不排除
+                sub_reg = sub_info.get('reg') or ''
+                if sub_mode == 1:
                     render_dict['sites'] = [site for site in render_dict['sites'] if
-                                            re.search(sub_info.get('reg') or '.*', site['name'], re.I)]
-                elif sub_info.get('mode') == 1:
+                                            not (sub_reg and re.search(sub_reg, site.get('name') or '', re.I))]
+                else:
                     render_dict['sites'] = [site for site in render_dict['sites'] if
-                                            not re.search(sub_info.get('reg') or '.*', site['name'], re.I)]
+                                            sub_reg and re.search(sub_reg, site.get('name') or '', re.I)]
                 # 增加t4订阅防盗
                 if mode == 0:
                     for site in render_dict['sites']:
