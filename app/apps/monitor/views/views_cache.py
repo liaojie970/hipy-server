@@ -27,6 +27,29 @@ access_name = 'monitor:cache'
 api_url = '/cache'
 
 
+@router.get(api_url, summary="获取缓存监控信息")
+async def getCacheInfo(*,
+                       db: Session = Depends(deps.get_db),
+                       u: Users = Depends(deps.user_perm([f"{access_name}:get"])),
+                       redis: Redis = Depends(deps.get_redis),
+                       ):
+    info = await redis.info()
+    dbSize = await redis.dbsize()
+    commandstats_raw = await redis.info("commandstats")
+    commandStats = []
+    for key, value in commandstats_raw.items():
+        if key.startswith('cmdstat_'):
+            name = key[len('cmdstat_'):]
+            value = int(str(value).split(',')[0].split('=')[1])
+            commandStats.append({"name": name, "value": value})
+    data = {
+        "info": info,
+        "dbSize": dbSize,
+        "commandStats": commandStats,
+    }
+    return respSuccessJson(data=data)
+
+
 @router.get(api_url + '/getNames', summary="查询缓存名称列表")
 async def listCacheName(*,
                         db: Session = Depends(deps.get_db),
