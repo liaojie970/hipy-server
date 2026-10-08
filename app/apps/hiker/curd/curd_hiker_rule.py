@@ -99,13 +99,15 @@ class CURDHikerRule(CRUDBase):
         #     'not_safe_note': record.not_safe_note,
         #     'last_active': str(record.last_active),
         # }
-        record = super().get(db, _id, to_dict)
-        # if record.get('auth_date_time'):
-        #     record['auth_date_time'] = str(record['auth_date_time'])
-        #
-        # if record.get('last_active'):
-        #     record['last_active'] = str(record['last_active'])
-        return record
+        # 显式带上连表条件，避免 query_columns 中的 dev_name/type_name 与
+        # 开发者表/规则类型表形成笛卡尔积，导致明细数据串行
+        row = db.query(*self.query_columns).filter(
+            self.model.id == _id,
+            self.model.is_deleted == 0,
+            self.model.dev_id == HikerDeveloper.id,
+            self.model.type_id == HikerRuleType.id,
+        ).first()
+        return dict(row or {}) if to_dict else row
 
     def create(self, db: Session, *, obj_in, creator_id: int = 0):
         obj_in_data = obj_in if isinstance(obj_in, dict) else jsonable_encoder(obj_in)
@@ -139,23 +141,15 @@ class CURDHikerRule(CRUDBase):
         if name:
             filters.append(self.model.name.like(f"%{name}%"))
         records, total, _, _ = self.get_multi(db, page=page, page_size=page_size, filters=filters)
-
-        # 增加where条件: 连表查，否则会出现笛卡尔积现象
-        filters.append(self.model.dev_id == HikerDeveloper.id)
-        filters.append(self.model.type_id == HikerRuleType.id)
-        # for record in records:
-        #     if record.get('auth_date_time'):
-        #         record['auth_date_time'] = str(record['auth_date_time'])
-        #
-        #     if record.get('last_active'):
-        #         record['last_active'] = str(record['last_active'])
-
         return {'results': records, 'total': total}
 
     def get_multi(self, db: Session, *, queries: Optional[list] = None, filters: Optional[list] = None,
                   order_bys: Optional[list] = None, to_dict: bool = True, page: int = 1, page_size: int = 25
                   ) -> Tuple[List[ModelType], int, int, int]:
-        # filters = (filters or []) + [self.model.dev_id == HikerDeveloper.id] + [self.model.type_id == HikerRuleType.id]
+        # 连表条件必须在执行查询前加入 filters，否则 query_columns 中的
+        # dev_name/type_name 会与开发者表/规则类型表形成笛卡尔积（同一规则被重复列出）
+        filters = (filters or []) + [self.model.dev_id == HikerDeveloper.id,
+                                     self.model.type_id == HikerRuleType.id]
         return super().get_multi(db, queries=queries, filters=filters, order_bys=order_bys, to_dict=to_dict, page=page,
                                  page_size=page_size)
 
