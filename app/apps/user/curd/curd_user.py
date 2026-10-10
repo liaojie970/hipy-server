@@ -100,7 +100,8 @@ class CURDUser(CRUDBase):
             Menus.id, Menus.path, Menus.name, Menus.icon, Menus.parent_id, Menus.is_frame, Menus.title,
             Menus.no_cache, Menus.component, Menus.hidden
         ).filter(Menus.is_deleted == 0, Menus.status == 0)
-        if menu_id_in:
+        # 超管 _id 为 None 时不过滤(取全部); 普通用户即使授权为空也要过滤(结果为空), 不能因列表为空跳过过滤
+        if _id is not None:
             q = q.filter(Menus.id.in_(menu_id_in))
 
         res = q.order_by(asc(Menus.order_num)).all()
@@ -132,9 +133,10 @@ class CURDUser(CRUDBase):
                 Menus.id, Menus.path, Menus.name, Menus.icon, Menus.parent_id, Menus.is_frame, Menus.title,
                 Menus.no_cache, Menus.component, Menus.hidden
             ).filter(
-                Menus.is_deleted == 0, Menus.parent_id == menu_id, Menus.id.in_(menu_id_in), Menus.status == 0
+                Menus.is_deleted == 0, Menus.parent_id == menu_id, Menus.status == 0
             )
-            if menu_id_in:
+            # 超管 _id 为 None 时不过滤(取全部); 普通用户即使授权为空也要过滤(结果为空), 不能因列表为空跳过过滤
+            if _id is not None:
                 q = q.filter(Menus.id.in_(menu_id_in))
             children = q.order_by(asc(Menus.order_num)).all()
             result = []
