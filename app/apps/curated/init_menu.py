@@ -9,11 +9,19 @@
 """
 from core.logger import logger
 from db.session import SessionLocal
-from apps.permission.models import Menus, Roles
+from apps.permission.models import Menus, Roles, PermLabel, PermLabelRole
 from apps.permission.models.role import RoleMenu
 
 # 默认站点(B站)预填的代理地址, 可按需在"站点管理"中修改
 DEFAULT_PROXY = '127.0.0.1:7897'
+
+# 精选内容接口埋点的权限标签, 需随菜单一起授予角色,
+# 否则非超管角色进入页面后按钮会被 v-hasPermi 隐藏、接口也会 403
+CURATED_PERM_LABELS = [
+    'curated:media:get', 'curated:media:post', 'curated:media:put',
+    'curated:provider:get', 'curated:provider:post', 'curated:provider:put',
+    'curated:category:post', 'curated:category:put',
+]
 
 # (name, path, component, title, icon, order_num)
 CHILD_MENUS = [
@@ -55,6 +63,9 @@ def init_curated_menus() -> None:
                                                    RoleMenu.is_deleted == 0).first()
                 if not exists:
                     db.add(RoleMenu(role_id=rid, menu_id=mid))
+        # 权限标签同样授予所有角色
+        for label in CURATED_PERM_LABELS:
+            _ensure_perm_label(db, label, role_ids)
         db.commit()
         _ensure_default_provider(db)
     except Exception as e:  # noqa
@@ -62,6 +73,24 @@ def init_curated_menus() -> None:
         logger.warning(f'[curated] 初始化菜单失败: {e}')
     finally:
         db.close()
+
+
+def _ensure_perm_label(db, label: str, role_ids) -> None:
+    """确保权限标签存在, 并授予给定角色(list)"""
+    obj = db.query(PermLabel).filter(PermLabel.label == label,
+                                     PermLabel.is_deleted == 0).first()
+    if not obj:
+        obj = PermLabel(label=label, remark='精选内容-自动初始化', status=0)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+    for rid in role_ids:
+        exists = db.query(PermLabelRole).filter(PermLabelRole.label_id == obj.id,
+                                                PermLabelRole.role_id == rid,
+                                                PermLabelRole.is_deleted == 0).first()
+        if not exists:
+            db.add(PermLabelRole(label_id=obj.id, role_id=rid))
+    db.commit()
 
 
 def _ensure_default_provider(db) -> None:
