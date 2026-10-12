@@ -159,18 +159,30 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
   - apps/permission/views.py: pandas 改惰性 import
   - utils/server_info.py: psutil 读取 /proc/stat|/proc/net/dev 被 SELinux 拒绝, 全部 try/except 容错
   - configs/.env: SQLALCHEMY_ENGINE=sqlite, DEFAULT_SNIFFER=hipy-sniffer,
-    API_DOMAIN=http://192.168.1.113:5707, WEB_DOMAIN=http://192.168.1.113:8080,
-    SERVER_PROXY=, REDIS_PASSWORD=123456
+    API_DOMAIN=http://127.0.0.1:5707 (设为本机 => 跟随访问来源, 实现 IP 无关),
+    WEB_DOMAIN=http://192.168.1.113:8080 (仅邮件链接用), SERVER_PROXY=, REDIS_PASSWORD=123456
+  - common/sys_schedule.py: APScheduler 的 ProcessPoolExecutor(10) -> (3),
+    手机端省内存(启动进程数由 10 降到 3)
 
-六、前端
+六、前端 (IP 无关化后)
   - PC 用 nvm node16 构建: npm run build:prod  => dashboard/dist (7.5MB)
-  - .env.production.local 内嵌:
-      VUE_APP_BASE_API='http://192.168.1.113:5707/api/v1/'
-  - 手机端用 `python -m http.server 8080 --directory $HOME/hipy/dist --bind 0.0.0.0` 提供
+  - .env.production.local 改为相对路径:
+      VUE_APP_BASE_API='/api/v1/'
+      VUE_APP_MEDIA_BASE='/media/'
+  - 源码里 12 处 `new URL(process.env.VUE_APP_BASE_API).origin` 全部替换为
+      window.location.origin  (否则相对路径会让 new URL() 抛 TypeError)
+  - 手机端由自写 spa_server.py 提供: 静态文件 + SPA 回退 + 反向代理
+      python $HOME/hipy/spa_server.py $HOME/hipy/dist 8080
+      代理前缀: /api /media /files /config /parse /ysp /web /docs /redoc
+      /openapi.json /version /database_update /rules_refresh /sniffer
+      /baidu /hotsugg /get_ip_location /blank /blog /doc -> 127.0.0.1:5707
+      保留原始 Host 头, 让后端 request.base_url 反映前端来源地址
+      注意: /static/ 后端也挂了, 但必须留给前端本地提供, 不可代理
 
 七、目录/脚本(手机 $HOME/hipy)
   app/            后端代码
   dist/           前端静态文件
+  spa_server.py   静态服务器 + 反向代理(SPA 回退)
   start_backend.sh   启动后端(:5707)
   start_frontend.sh  启动前端(:8080)
   start_all.sh       一键启动 redis+后端+前端
@@ -202,3 +214,83 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
     user   / 123456   (原库即为此)
     hjdhnx / hjdhnx
 ----------------------------------------------------------------
+
+
+================================================================
+【SSH 远程登录配置记录】  2026-10-10
+================================================================
+目标: 在 Windows PC 上用 SSH 管理手机 Termux
+
+一、必须先记住的两个坑
+  - Termux 的 sshd 端口是 8022, 不是 22
+  - 用户名是 Termux 的 uid (命令 whoami 的输出), 本机为 u0_a212,
+    不是 root, 也不是 termux
+  - Android 不提供可解析的 .local 主机名(mDNS), 实测:
+      adb shell getprop net.hostname  -> MI9SE-AdadeMI9SE
+      ping MI9SE-AdadeMI9SE.local     -> 解析失败
+      adb -s 299b92f mdns services    -> 空
+    结论: 只能靠 IP 定位手机
+
+二、实际执行的动作(可复现)
+  1) 确认 openssh 已装:
+       dpkg -l | grep openssh        -> openssh 10.6p1-1
+  2) 启动 sshd (默认监听 8022):
+       sshd
+  3) PC 生成专用密钥(不动原有 id_rsa):
+       ssh-keygen -t ed25519 -f "J:/Develop/Users/LJ/.ssh/id_ed25519_hipy" -N "" -C hipy-phone
+  4) 把公钥写入手机(通过 adb):
+       adb push id_ed25519_hipy.pub /data/local/tmp/hipy_key.pub
+       # 手机内:
+       mkdir -p ~/.ssh && chmod 700 ~/.ssh
+       cat /data/local/tmp/hipy_key.pub >> ~/.ssh/authorized_keys
+       chmod 600 ~/.ssh/authorized_keys
+  5) PC 上写别名 %USERPROFILE%\.ssh\config :
+       Host hipy
+           HostName 192.168.1.113
+           Port 8022
+           User u0_a212
+           IdentityFile J:/Develop/Users/LJ/.ssh/id_ed25519_hipy
+           ServerAliveInterval 30
+  6) 把 sshd 加入手机 ~/hipy/start_all.sh (重启后随服务一起启动)
+  7) 验证:
+       ssh hipy  ->  whoami = u0_a212 ; uname -m = aarch64  ✅
+
+三、换 WiFi 后 IP 会变 => "ssh hipy" 会失效
+  原因: config 里 HostName 写死了 192.168.1.113。
+  解决方案(按推荐排序):
+   A. USB 直连(最稳, 与 IP 无关):
+        adb forward tcp:8022 tcp:8022
+        ssh -p 8022 u0_a212@127.0.0.1
+   B. 查新 IP 后改 config:
+        手机(Termux): ip -4 addr show wlan0
+        PC: 修改 %USERPROFILE%\.ssh\config 里 hipy 的 HostName
+   C. 路由器里给手机做 DHCP 保留(绑定固定 IP) —— 只对该网络有效
+   D. 自动定位脚本: %USERPROFILE%\.ssh\ssh-hipy.ps1
+        逻辑: ① 若 adb 在线 -> 用 adb 取 wlan0 的 IP (USB 路径)
+              ② 否则 -> 扫描各活动网段的 8022 端口, 自动找到手机
+        用法: .\ssh-hipy.ps1                 # 自动找并登录
+              .\ssh-hipy.ps1 -FindOnly       # 只打印手机当前 IP
+              .\ssh-hipy.ps1 -Command "whoami"
+              .\ssh-hipy.ps1 -UpdateConfig   # 找到后写回 config 别名
+        实测: 局域网扫描约 2 秒命中 192.168.1.113
+        注意: PowerShell 5.1 读取脚本需 "UTF-8 with BOM",
+              否则中文被当 GBK 解析会报语法错(字符串未终止)
+
+四、网页 IP 无关化 (2026-10-12 已实施完成)
+  问题: 前端打包时 VUE_APP_BASE_API 固化为 http://192.168.1.113:5707/api/v1/,
+        后端 .env 的 API_DOMAIN 也是该 IP => 换网络后网页加载不出数据。
+  解决:
+    1) 前端改用相对路径 /api/v1/ 与 /media/ (需同步替换 12 处
+       new URL(VUE_APP_BASE_API).origin -> window.location.origin)
+    2) spa_server.py 增加反向代理: 命中后端路径前缀时转发到 127.0.0.1:5707,
+       并保留原始 Host 头
+    3) 后端 .env API_DOMAIN 设为 http://127.0.0.1:5707
+  关键发现: apps/web/views.py:224 与 apps/vod/views/views_rules.py:97 判断
+    内网 IP 的正则带 ^...$ 锚点, 而 request.base_url 形如
+    "http://ip:port/" (结尾有斜杠), 永远匹配不上 => 条件恒真 => 一直用
+    API_DOMAIN。因此必须把 API_DOMAIN 设成 127.0.0.1 (命中 `'127.0.0.1' not in`
+    分支走 else), 才会回退到 request.base_url (即访问来源地址)。
+  验证: 经 8080 代理取 /config/0?sub=dzyyds, 生成的源地址为
+        http://192.168.1.113:8080 ; 直连 5707 则为 ...:5707 (均跟随来源)。
+  => 前端网页与 tvbox 配置均与 IP 解耦, 换任何网络/IP 都不受影响。
+================================================================
