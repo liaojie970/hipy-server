@@ -292,5 +292,9 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
     分支走 else), 才会回退到 request.base_url (即访问来源地址)。
   验证: 经 8080 代理取 /config/0?sub=dzyyds, 生成的源地址为
         http://192.168.1.113:8080 ; 直连 5707 则为 ...:5707 (均跟随来源)。
-  => 前端网页与 tvbox 配置均与 IP 解耦, 换任何网络/IP 都不受影响。
+  4) 邮件链接的 WEB_DOMAIN 也做了同样处理 (utils/web.py 新增 getWebHost):
+     若 WEB_DOMAIN 是内网地址/localhost 则改用 request.base_url;
+     若是公网域名则沿用配置值。apps/user/views.py 的 submitRegister /
+     submitForgetPassword 改用 getWebHost(request) 生成邮件里的注册/找回链接。
+  => 至此 IP 无关化覆盖: 网页接口、tvbox 配置、邮件链接。
 ================================================================

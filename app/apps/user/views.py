@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from utils.captcha_code import create_base64_code
 from utils.email import EmailSender
 from utils.encrypt import get_uuid
+from utils.web import getWebHost
 
 from apps.permission.models.user import Users
 
@@ -174,6 +175,7 @@ def changePassword(*,
 async def submitRegister(*,
                          db: Session = Depends(deps.get_db),
                          redis: Redis = Depends(deps.get_redis),
+                         request: Request,
                          client_ip: str = Depends(deps.get_ipaddress),
                          email: EmailSender = Depends(deps.get_email_sender),
                          register_data: user_info_schemas.RegisterUserInfoSchema
@@ -216,7 +218,7 @@ async def submitRegister(*,
     await redis.setex(constants.REDIS_KEY_REGISTER_TOKEN_KEY_PREFIX + uuid,
                       timedelta(days=constants.REGISTER_TOKEN_EXPIRE_HOURS),
                       json.dumps(user_data))
-    email_data = {'url': f"{settings.WEB_DOMAIN}/register-verify/{uuid}"}
+    email_data = {'url': f"{getWebHost(request)}/register-verify/{uuid}"}
     email_title = "注册验证邮件"
     email.send(user_data['email'], email_title, "register", email_data)
     return respSuccessJson()
@@ -256,6 +258,7 @@ async def confirmRegister(*,
 @router.post("/forget-password", summary="提交忘记密码")
 async def submitForgetPassword(*,
                                db: Session = Depends(deps.get_db),
+                               request: Request,
                                email: EmailSender = Depends(deps.get_email_sender),
                                redis: Redis = Depends(deps.get_redis),
                                obj: user_info_schemas.ForgetPasswordSubmitSchema
@@ -281,7 +284,7 @@ async def submitForgetPassword(*,
     await redis.setex(constants.REDIS_KEY_FORGET_PWD_TOKEN_KEY_PREFIX + uuid,
                       timedelta(minutes=constants.FORGET_PWD_TOKEN_EXPIRE_HOURS),
                       json.dumps({'id': u.id, 'email': u.email, 'username': u.username}))
-    email_data = {'url': f"{settings.WEB_DOMAIN}/forget-password/set-password/{uuid}"}
+    email_data = {'url': f"{getWebHost(request)}/forget-password/set-password/{uuid}"}
     email_title = "重新设置密码"
     email.send(obj.email, email_title, "forget-password", email_data)
     return respSuccessJson()

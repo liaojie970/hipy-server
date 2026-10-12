@@ -66,6 +66,24 @@ def getRealHost(host: str, request: Req):
     return host
 
 
+def getWebHost(request: Req):
+    """
+    获取前端页面地址（用于邮件里的注册/找回密码链接）。
+    默认跟随访问来源 request.base_url，与 IP 解耦；
+    仅当 WEB_DOMAIN 配置为公网/真实域名时才使用配置值。
+    """
+    web_domain = (settings.WEB_DOMAIN or '').strip().rstrip('/')
+    if web_domain:
+        host_part = re.sub(r'^https?://', '', web_domain).split('/')[0]
+        hostname = host_part.split(':')[0]
+        is_local = (hostname in ('localhost', '127.0.0.1')
+                    or re.match(r'^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)', hostname))
+        if not is_local:
+            return web_domain
+    host = str(request.base_url).rstrip('/')
+    return getRealHost(host, request)
+
+
 class HtmlSender:
     ENV = Environment(loader=FileSystemLoader('./'))
 
