@@ -16,7 +16,7 @@ from core.logger import logger
 from core.constants import BASE_DIR
 from ...permission.models import Users
 
-from common import deps, error_code
+from common import deps, error_code, data_scope
 from ..schemas import rules_schemas
 from common.schemas import OrderNumSchema
 from ..curd.curd_rules import curd_vod_rules as curd
@@ -44,9 +44,48 @@ access_name = 'vod:rules'
 api_url = '/rules'
 
 
+def _scoped_get(curd, db: Session, _id: int, user, to_dict: bool = True):
+    """按数据范围查单条记录(详情用); 查不到即视为无权限/不存在。"""
+    q = db.query(*curd.query_columns).filter(
+        curd.model.id == _id, curd.model.is_deleted == 0)
+    q = data_scope.apply_scope(q, curd.model, db, user)
+    row = q.first()
+    if not to_dict:
+        return row
+    return dict(row) if row else {}
+
+
+def _ensure_all_writable(curd, db: Session, ids, user) -> None:
+    """批量预校验: 任一目标不可写则直接抛错(先校验, 后执行, 避免半成功)。"""
+    for _id in ids:
+        data_scope.ensure_writable(curd.get(db, _id=int(_id)), db, user)
+
+
+def _write_scope_filter(model, db: Session, user) -> list:
+    """写范围过滤条件: 超管=全部(无附加条件), 其余仅本人创建。
+
+    与 data_scope.ensure_writable 语义一致; 注意不要用读取范围 apply_scope,
+    读取范围含公共记录(creator_id 0/1), 不可用于写/删。
+    """
+    if data_scope.user_scope(db, user) >= 3:
+        return []
+    user_id = user.get('id') if isinstance(user, dict) else getattr(user, 'id', None)
+    return [model.creator_id == user_id]
+
+
+def _scoped_clear(curd, db: Session, user) -> None:
+    """清空(超管=全部, 其余仅本人创建的记录)。"""
+    q = db.query(curd.model)
+    for _f in _write_scope_filter(curd.model, db, user):
+        q = q.filter(_f)
+    q.delete(synchronize_session=False)
+    db.commit()
+
+
 @router.get(api_url + '/list', summary="查询源列表")
 async def searchRecords(*,
                         db: Session = Depends(deps.get_db),
+                        u: Users = Depends(deps.get_current_user),
                         status: int = Query(None),
                         is_exist: bool = Query(None),
                         name: str = Query(None),
@@ -70,8 +109,9 @@ async def searchRecords(*,
         elif order_by == 'order_num':
             order_bys = order_bys
 
+    scope_filters = data_scope.apply_scope([], curd.model, db, u)
     res = curd.search(db, status=status, is_exist=is_exist, name=name, group=group, file_type=file_type, page=page,
-                      page_size=page_size, order_bys=order_bys)
+                      page_size=page_size, order_bys=order_bys, extra_filters=scope_filters)
     res['BASE_DIR'] = Path(BASE_DIR).as_posix() + '/'
     return respSuccessJson(res)
 
@@ -79,9 +119,10 @@ async def searchRecords(*,
 @router.get(api_url + '/{_id}', summary="查询源详细")
 async def getRecord(*,
                     db: Session = Depends(deps.get_db),
+                    u: Users = Depends(deps.get_current_user),
                     _id: int = Query(..., title="源id"),
                     ):
-    return respSuccessJson(curd.get(db, _id=_id))
+    return respSuccessJson(_scoped_get(curd, db, _id, u))
 
 
 @router.get(api_url + '/raw/{_id}', summary="获取源文件直链")
@@ -100,7 +141,9 @@ async def getRecordRawLink(*,
     else:
         host = str(request.base_url).rstrip('/')
     host = getRealHost(host, request)
-    rule_data = curd.get(db, _id=_id, to_dict=False)
+    rule_data = _scoped_get(curd, db, _id, u, to_dict=False)
+    if rule_data is None:
+        return respErrorJson(error_code.ERROR_NOT_FOUND.set_msg('源不存在或无权限'))
     groups = {}
     group_dict = curd_dict_data.getByType(db, _type='vod_rule_group')
     group_details = group_dict.get('details')
@@ -127,6 +170,7 @@ async def setRecord(*,
                     _id: int,
                     obj: rules_schemas.RulesSchema,
                     ):
+    data_scope.ensure_writable(curd.get(db, _id=_id), db, u)
     curd.update(db, _id=_id, obj_in=obj, modifier_id=u['id'])
     return respSuccessJson()
 
@@ -138,6 +182,7 @@ async def setOrderNum(*,
                       _id: int,
                       obj: OrderNumSchema
                       ):
+    data_scope.ensure_writable(curd.get(db, _id=_id), db, u)
     curd.update(db, _id=_id, obj_in=obj, modifier_id=u['id'])
     return respSuccessJson()
 
@@ -150,6 +195,7 @@ async def setRecordRawContent(*,
                               obj: rules_schemas.RulesContentSchema,
                               ):
     rule_data = curd.get(db, _id=_id, to_dict=False)
+    data_scope.ensure_writable(rule_data, db, u)
     rule_path = rule_data.path
     is_exist = rule_data.is_exist
     rule_path = Path(os.path.join(BASE_DIR, rule_path)).as_posix()
@@ -294,6 +340,16 @@ async def uploadData(*,
         os.makedirs(spiders_dir, exist_ok=True)
         count = 0
         prefix_js_code, endfix_js_code = get_prefix_end_js(group_label, group, files)
+        # 预校验: 待覆盖的同名已有记录必须可写, 任一不可写则整体拒绝(禁止半成功覆盖他人数据)
+        for i in files:
+            fname = os.path.basename(i.filename)
+            fpath = Path(os.path.join(spiders_dir, fname)).as_posix()
+            if os.path.exists(fpath) and not updateSupport:
+                continue
+            base_name, extension = os.path.splitext(fname)
+            exist_record = curd.getByName(db, base_name, extension, group)
+            if exist_record:
+                data_scope.ensure_writable(exist_record, db, u)
         for i in files:
             fpath = os.path.join(spiders_dir, i.filename)
             fpath = Path(fpath).as_posix()
@@ -416,6 +472,7 @@ async def doRefresh(db: Session,
     for file_info in files_data:
         record = curd.getByName(db, file_info['name'], file_info['file_type'], file_info['group'])
         if record:
+            data_scope.ensure_writable(record, db, u)
             curd.update(db, _id=record.id, obj_in=file_info, modifier_id=u['id'])
         else:
             file_info.update({
@@ -433,7 +490,8 @@ async def doRefresh(db: Session,
         exist_records.append(record.id)
         logger.info(f'record: id:{record.id} name:{record.name}{record.file_type}')
 
-    records = curd.set_exist_by_ids(db, _ids=exist_records)
+    scope_filters = _write_scope_filter(curd.model, db, u)
+    records = curd.set_exist_by_ids(db, _ids=exist_records, extra_filters=scope_filters)
     logger.info(files_data)
     logger.info(f'将{len(records)}条记录设置为不存在')
     return respSuccessJson(data={'spiders_dirs': spiders_dirs, 'project_dir': project_dir}, msg='刷新成功')
@@ -454,6 +512,7 @@ async def setActive(*,
                     _id: int,
                     obj: ActiveSchema
                     ):
+    data_scope.ensure_writable(curd.get(db, _id=_id), db, u)
     curd.setActive(db, _id=_id, active=obj.active, modifier_id=u['id'])
     return respSuccessJson()
 
@@ -463,7 +522,7 @@ async def clearRecord(*,
                       db: Session = Depends(deps.get_db),
                       u: Users = Depends(deps.user_perm([f"{access_name}:delete"])),
                       ):
-    curd.clear(db)
+    _scoped_clear(curd, db, u)
     table_name = settings.SQL_TABLE_PREFIX + 'vod_rules'
     sql = ''
     if 'mysql' in settings.SQLALCHEMY_ENGINE:
@@ -488,6 +547,7 @@ async def delRecord(*,
                     ):
     logger.info(f'with_file:{with_file}')
     _ids = list(map(lambda x: int(x), _ids.split(',')))
+    _ensure_all_writable(curd, db, _ids, u)
     paths = curd.get_path_by_ids(db=db, _ids=_ids)
     # print(paths)
 

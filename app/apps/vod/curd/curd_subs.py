@@ -44,8 +44,10 @@ class CURDVodSubs(CRUDBase):
                code: str = None,
                reg: str = None,
                order_bys: Optional[list] = None,
+               extra_filters: Optional[list] = None,
                page: int = 1, page_size: int = 20) -> dict:
-        filters = []
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 参与分页计数
+        filters = list(extra_filters or [])
         if status is not None:
             filters.append(self.model.status == status)
         if mode is not None:

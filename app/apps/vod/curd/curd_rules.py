@@ -38,8 +38,11 @@ class CURDVodRules(CRUDBase):
         paths = [record.path for record in records]
         return paths
 
-    def set_exist_by_ids(self, db: Session, *, _ids: List[int]):
+    def set_exist_by_ids(self, db: Session, *, _ids: List[int], extra_filters: Optional[list] = None):
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 避免刷新时误改他人数据
         records = db.query(self.model).filter(self.model.id.notin_(_ids))
+        for _f in (extra_filters or []):
+            records = records.filter(_f)
         records.update({'is_exist': False})
         db.commit()
         return records.all()
@@ -51,8 +54,10 @@ class CURDVodRules(CRUDBase):
                group: str = None,
                file_type: str = None,
                order_bys: Optional[list] = None,
+               extra_filters: Optional[list] = None,
                page: int = 1, page_size: int = 20) -> dict:
-        filters = []
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 参与分页计数
+        filters = list(extra_filters or [])
         if status is not None:
             filters.append(self.model.status == status)
         if is_exist is not None:
