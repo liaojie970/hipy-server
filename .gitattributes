@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────
+# 换行符统一策略（治本：消除 CRLF/LF 全仓抖动）
+#   仓库内统一以 LF 存储；检出也用 LF（跨平台一致，避免 Windows/WSL/Docker 差异）
+#   作用：a) git status 不再把"换行符不同"当成修改；b) 合并不再被换行符挡住
+# ─────────────────────────────────────────────────────────────
+* text=auto eol=lf
+
+# Windows 专用脚本保留 CRLF（bat/cmd 对 LF 敏感）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：禁止任何换行转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.bmp  binary
+*.webp binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.7z   binary
+*.rar  binary
+*.exe  binary
+*.dll  binary
+*.so   binary
+*.pyd  binary
+*.db   binary
+*.sqlite binary
+*.pyc  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
+*.mp3  binary
+*.mp4  binary
+*.wav  binary
+*.doc  binary
+*.docx binary
+*.xls  binary
+*.xlsx binary
