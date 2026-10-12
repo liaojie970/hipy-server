@@ -44,8 +44,10 @@ class CURDHikerRuleType(CRUDBase):
     #     return res
 
     def search(self, db: Session, *, name: str = "", count_num: int = None,
+               extra_filters: Optional[list] = None,
                page: int = 1, page_size: int = 25) -> dict:
-        filters = []
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 参与分页计数
+        filters = list(extra_filters or [])
         if count_num is not None:
             filters.append(self.model.count_num == count_num)
         if name:
@@ -128,8 +130,10 @@ class CURDHikerRule(CRUDBase):
 
     def search(self, db: Session, *, name: str = "", author: str = None, value: str = None, url: str = None,
                dev_id: int = None,
+               extra_filters: Optional[list] = None,
                page: int = 1, page_size: int = 25) -> dict:
-        filters = []
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 参与分页计数
+        filters = list(extra_filters or [])
         if author is not None:
             filters.append(self.model.author == author)
         if value is not None:

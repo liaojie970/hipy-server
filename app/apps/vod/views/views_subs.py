@@ -12,7 +12,7 @@ from ...permission.models import Users
 from ..schemas import subs_schemas
 from ..curd.curd_subs import curd_vod_subs as curd
 
-from common import deps, error_code
+from common import deps, error_code, data_scope
 
 from common.resp import respSuccessJson, respErrorJson
 
@@ -22,9 +22,27 @@ access_name = 'vod:subs'
 api_url = '/subs'
 
 
+def _scoped_get(curd, db: Session, _id: int, user, to_dict: bool = True):
+    """按数据范围查单条记录(详情用); 查不到即视为无权限/不存在。"""
+    q = db.query(*curd.query_columns).filter(
+        curd.model.id == _id, curd.model.is_deleted == 0)
+    q = data_scope.apply_scope(q, curd.model, db, user)
+    row = q.first()
+    if not to_dict:
+        return row
+    return dict(row) if row else {}
+
+
+def _ensure_all_writable(curd, db: Session, ids, user) -> None:
+    """批量预校验: 任一目标不可写则直接抛错(先校验, 后执行, 避免半成功)。"""
+    for _id in ids:
+        data_scope.ensure_writable(curd.get(db, _id=int(_id)), db, user)
+
+
 @router.get(api_url, summary="搜索订阅")
 async def searchRecords(*,
                         db: Session = Depends(deps.get_db),
+                        u: Users = Depends(deps.get_current_user),
                         status: int = Query(None),
                         mode: int = Query(None),
                         name: str = Query(None),
@@ -33,16 +51,19 @@ async def searchRecords(*,
                         page: int = Query(1, gt=0),
                         page_size: int = Query(20, gt=0),
                         ):
-    res = curd.search(db, name=name, code=code, status=status, mode=mode, reg=reg, page=page, page_size=page_size)
+    scope_filters = data_scope.apply_scope([], curd.model, db, u)
+    res = curd.search(db, name=name, code=code, status=status, mode=mode, reg=reg, page=page, page_size=page_size,
+                      extra_filters=scope_filters)
     return respSuccessJson(res)
 
 
 @router.get(api_url + "/{_id}", summary="通过ID获取订阅信息")
 async def getRecord(*,
                     db: Session = Depends(deps.get_db),
+                    u: Users = Depends(deps.get_current_user),
                     _id: int,
                     ):
-    return respSuccessJson(curd.get(db, _id=_id))
+    return respSuccessJson(_scoped_get(curd, db, _id, u))
 
 
 @router.post(api_url, summary="添加订阅")
@@ -64,6 +85,7 @@ async def enableRecords(*,
                         _ids: str,
                         ):
     _ids = list(map(lambda x: int(x), _ids.split(',')))
+    _ensure_all_writable(curd, db, _ids, u)
     for _id in _ids:
         curd.setStatus(db=db, _id=_id, status=1, modifier_id=u['id'])
     return respSuccessJson()
@@ -76,6 +98,7 @@ async def disableRecords(*,
                          _ids: str,
                          ):
     _ids = list(map(lambda x: int(x), _ids.split(',')))
+    _ensure_all_writable(curd, db, _ids, u)
     for _id in _ids:
         curd.setStatus(db=db, _id=_id, status=0, modifier_id=u['id'])
     return respSuccessJson()
@@ -88,6 +111,7 @@ async def setRecord(*,
                     obj: subs_schemas.SubsSchema,
                     _id: int,
                     ):
+    data_scope.ensure_writable(curd.get(db, _id=_id), db, u)
     curd.update(db, _id=_id, obj_in=obj, modifier_id=u['id'])
     return respSuccessJson()
 
@@ -99,5 +123,6 @@ async def delRecord(*,
                     _ids: str,
                     ):
     _ids = list(map(lambda x: int(x), _ids.split(',')))
+    _ensure_all_writable(curd, db, _ids, u)
     curd.deletes(db, _ids=_ids, deleter_id=u['id'])
     return respSuccessJson()

@@ -19,7 +19,7 @@ try:
     from redis.asyncio import Redis as asyncRedis
 except ImportError:
     from aioredis import Redis as asyncRedis
-from common import deps
+from common import deps, data_scope
 from common.resp import respSuccessJson
 from ..models import VodConfigs
 from ..curd.curd_configs import curd_vod_configs as curd
@@ -33,6 +33,33 @@ access_name = 'vod:configs'
 api_url = '/configs'
 
 
+def _scoped_get(curd, db: Session, _id: int, user, to_dict: bool = True):
+    """按数据范围查单条记录(详情用); 查不到即视为无权限/不存在。"""
+    q = db.query(*curd.query_columns).filter(
+        curd.model.id == _id, curd.model.is_deleted == 0)
+    q = data_scope.apply_scope(q, curd.model, db, user)
+    row = q.first()
+    if not to_dict:
+        return row
+    return dict(row) if row else {}
+
+
+def _ensure_all_writable(curd, db: Session, ids, user) -> None:
+    """批量预校验: 任一目标不可写则直接抛错(先校验, 后执行, 避免半成功)。"""
+    for _id in ids:
+        data_scope.ensure_writable(curd.get(db, _id=int(_id)), db, user)
+
+
+def _scoped_clear(curd, db: Session, user) -> None:
+    """清空(超管=全部, 其余仅本人创建的记录)。"""
+    q = db.query(curd.model)
+    if data_scope.user_scope(db, user) < 3:
+        user_id = user.get('id') if isinstance(user, dict) else getattr(user, 'id', None)
+        q = q.filter(curd.model.creator_id == user_id)
+    q.delete(synchronize_session=False)
+    db.commit()
+
+
 @router.get(api_url + '/list', summary="查询配置列表")
 async def searchRecords(*,
                         db: Session = Depends(deps.get_db),
@@ -43,7 +70,7 @@ async def searchRecords(*,
                         key: str = "",
                         status: int = None
                         ):
-    filters = []
+    filters = data_scope.apply_scope([], VodConfigs, db, u)
     if name:
         filters.append(VodConfigs.name.like(f"%{name}%"))
     if key:
@@ -58,6 +85,7 @@ async def searchRecords(*,
 @router.get(api_url + '/key/{key}', summary="通过Key获取单个配置")
 async def getRecordByKey(*,
                          db: Session = Depends(deps.get_db),
+                         u: Users = Depends(deps.get_current_user),
                          r: asyncRedis = Depends(deps.get_redis),
                          key: str
                          ):
@@ -65,6 +93,9 @@ async def getRecordByKey(*,
         vod_configs_obj = await curd.getByKeyWithCache(r, db, key=key)
     else:
         vod_configs_obj = curd.getByKey(db, key=key)
+    # 按数据范围过滤: 越权时视为不存在(保持响应结构为空对象)
+    if vod_configs_obj and not _scoped_get(curd, db, vod_configs_obj.get('id'), u):
+        vod_configs_obj = {}
     return respSuccessJson(vod_configs_obj)
 
 
@@ -81,7 +112,7 @@ async def getRecordByID(*,
                         u: Users = Depends(deps.user_perm([f"{access_name}:get"])),
                         _id: int
                         ):
-    vod_configs_obj = curd.get(db, _id=_id)
+    vod_configs_obj = _scoped_get(curd, db, _id, u)
     return respSuccessJson(vod_configs_obj)
 
 
@@ -103,6 +134,7 @@ async def setRecordByID(*,
                         r: asyncRedis = Depends(deps.get_redis),
                         _id: int
                         ):
+    data_scope.ensure_writable(curd.get(db, _id=_id), db, u)
     if r:
         await curd.deleteCacheByID(r, _id=_id)
     curd.update(db, _id=_id, obj_in=obj, modifier_id=u['id'])
@@ -114,7 +146,7 @@ async def clearRecord(*,
                       db: Session = Depends(deps.get_db),
                       u: Users = Depends(deps.user_perm([f"{access_name}:delete"])),
                       ):
-    curd.clear(db)
+    _scoped_clear(curd, db, u)
     table_name = settings.SQL_TABLE_PREFIX + 'vod_configs'
     sql = ''
     if 'mysql' in settings.SQLALCHEMY_ENGINE:
@@ -138,6 +170,7 @@ async def delRecordByID(*,
                         _ids: str
                         ):
     _ids = list(map(lambda x: int(x), _ids.split(',')))
+    _ensure_all_writable(curd, db, _ids, u)
     if r:
         for _id in _ids:
             await curd.deleteCacheByID(r, _id=_id)
@@ -297,6 +330,7 @@ async def refreshConfigs(*,
     for config in configs_data:
         record = curd.getByKey(db, key=config['key'])
         if record:
+            data_scope.ensure_writable(curd.get(db, _id=record['id']), db, u)
             _id = record['id']
             name = record['name']
             key = record['key']

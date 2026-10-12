@@ -48,8 +48,10 @@ class CURDHikerDeveloper(CRUDBase):
     #     return res
 
     def search(self, db: Session, *, name: str = "", qq: str = "", status: int = None,
+               extra_filters: Optional[list] = None,
                page: int = 1, page_size: int = 25) -> dict:
-        filters = []
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 参与分页计数
+        filters = list(extra_filters or [])
         if status is not None:
             filters.append(self.model.status == status)
         if name:
