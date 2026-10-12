@@ -288,7 +288,7 @@ async def getMenuSimpleList(*,
 @router.get("/menu/{menu_id}", summary="单个菜单")
 async def getMenu(*,
                   menu_id: int,
-                  u: Users = Depends(deps.user_perm(["perm:menu:get", "perm:menu:gut"])),
+                  u: Users = Depends(deps.user_perm(["perm:menu:get", "perm:menu:put"])),
                   db: Session = Depends(deps.get_db)
                   ):
     return respSuccessJson(curd_menu.get(db, _id=menu_id))

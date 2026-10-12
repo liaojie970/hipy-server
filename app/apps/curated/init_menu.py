@@ -23,6 +23,9 @@ CURATED_PERM_LABELS = [
     'curated:category:post', 'curated:category:put',
 ]
 
+# 仅授予这些角色的 key(按 Roles.key 匹配)
+GRANT_ROLE_KEYS = ('admin', 'general', 'Operation')
+
 # (name, path, component, title, icon, order_num)
 CHILD_MENUS = [
     ('CuratedProviders', 'providers', '/curated/providers/index', '站点管理', 'international', 1),
@@ -54,8 +57,9 @@ def init_curated_menus() -> None:
         for name, path, component, title, icon, order in CHILD_MENUS:
             menu_ids.append(_ensure_menu(db, name=name, path=path, component=component,
                                          title=title, icon=icon, order_num=order, parent_id=parent_id))
-        # 授予所有角色
-        role_ids = [r.id for r in db.query(Roles).filter(Roles.is_deleted == 0).all()]
+        # 仅授予指定角色
+        role_ids = [r.id for r in db.query(Roles).filter(
+            Roles.is_deleted == 0, Roles.key.in_(GRANT_ROLE_KEYS)).all()]
         for mid in menu_ids:
             for rid in role_ids:
                 exists = db.query(RoleMenu).filter(RoleMenu.role_id == rid,
