@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from apps.permission.models import Users
-from common import deps, error_code
+from common import deps, error_code, data_scope
 from common.resp import respSuccessJson, respErrorJson
 from utils.web import getRealHost
 
@@ -29,6 +29,29 @@ access_name = 'curated'
 api_url = ''
 
 
+def _scoped_get(curd, db: Session, _id: int, user) -> dict:
+    """按数据范围查单条记录(详情用); 查不到即视为无权限/不存在。"""
+    q = db.query(*curd.query_columns).filter(
+        curd.model.id == _id, curd.model.is_deleted == 0)
+    q = data_scope.apply_scope(q, curd.model, db, user)
+    row = q.first()
+    return dict(row) if row else {}
+
+
+def _ensure_all_writable(curd, db: Session, ids, user) -> None:
+    """批量预校验: 任一目标不可写则直接抛错(先校验, 后执行, 避免半成功)。"""
+    for _id in ids:
+        obj = curd.get(db, _id=int(_id))
+        data_scope.ensure_writable(obj, db, user)
+
+
+def _ensure_all_visible(curd, db: Session, ids, user) -> None:
+    """批量预校验: 任一目标不可见则直接抛错(只读场景, 如校验可见性)。"""
+    for _id in ids:
+        obj = curd.get(db, _id=int(_id))
+        data_scope.ensure_visible(obj, db, user)
+
+
 # ======================================================================
 # 站点(Provider)
 # ======================================================================
@@ -40,12 +63,13 @@ async def availableProviders():
 @router.get(api_url + '/providers', summary="站点列表")
 async def listProviders(*,
                         db: Session = Depends(deps.get_db),
+                        u: Users = Depends(deps.get_current_user),
                         keyword: str = Query(None),
                         status: int = Query(None),
                         page: int = Query(1, gt=0),
                         page_size: int = Query(25, gt=0),
                         ):
-    filters = []
+    filters = data_scope.apply_scope([], curd_provider.model, db, u)
     if status is not None:
         filters.append(curd_provider.model.status == status)
     if keyword:
@@ -60,8 +84,11 @@ async def listProviders(*,
 
 
 @router.get(api_url + '/providers/{_id}', summary="站点详情")
-async def getProvider(*, db: Session = Depends(deps.get_db), _id: int):
-    data = curd_provider.get(db, _id=_id)
+async def getProvider(*,
+                      db: Session = Depends(deps.get_db),
+                      u: Users = Depends(deps.get_current_user),
+                      _id: int):
+    data = _scoped_get(curd_provider, db, _id, u)
     if data:
         data['config'] = curated_service.parse_config(data.get('config'))
     return respSuccessJson(data)
@@ -86,6 +113,7 @@ async def setProvider(*,
                       obj: CuratedProviderSchema,
                       _id: int,
                       ):
+    data_scope.ensure_writable(curd_provider.get(db, _id=_id), db, u)
     data = obj.dict(exclude_none=True)
     if 'config' in data:
         data['config'] = curated_service.dump_config(data.get('config'))
@@ -99,6 +127,7 @@ async def delProvider(*,
                       u: Users = Depends(deps.user_perm([f"{access_name}:provider:delete"])),
                       _id: int,
                       ):
+    data_scope.ensure_writable(curd_provider.get(db, _id=_id), db, u)
     curd_provider.delete(db, _id=_id, deleter_id=u['id'])
     return respSuccessJson()
 
@@ -122,12 +151,13 @@ async def testProvider(*,
 @router.get(api_url + '/categories', summary="分类列表")
 async def listCategories(*,
                          db: Session = Depends(deps.get_db),
+                         u: Users = Depends(deps.get_current_user),
                          keyword: str = Query(None),
                          status: int = Query(None),
                          page: int = Query(1, gt=0),
                          page_size: int = Query(100, gt=0),
                          ):
-    filters = []
+    filters = data_scope.apply_scope([], curd_category.model, db, u)
     if status is not None:
         filters.append(curd_category.model.status == status)
     if keyword:
@@ -139,8 +169,11 @@ async def listCategories(*,
 
 
 @router.get(api_url + '/categories/{_id}', summary="分类详情")
-async def getCategory(*, db: Session = Depends(deps.get_db), _id: int):
-    return respSuccessJson(curd_category.get(db, _id=_id))
+async def getCategory(*,
+                      db: Session = Depends(deps.get_db),
+                      u: Users = Depends(deps.get_current_user),
+                      _id: int):
+    return respSuccessJson(_scoped_get(curd_category, db, _id, u))
 
 
 @router.post(api_url + '/categories', summary="新增分类")
@@ -163,6 +196,7 @@ async def setCategory(*,
                       obj: CuratedCategorySchema,
                       _id: int,
                       ):
+    data_scope.ensure_writable(curd_category.get(db, _id=_id), db, u)
     curd_category.update(db, _id=_id, obj_in=obj.dict(exclude_none=True), modifier_id=u['id'])
     return respSuccessJson()
 
@@ -173,6 +207,7 @@ async def delCategory(*,
                       u: Users = Depends(deps.user_perm([f"{access_name}:category:delete"])),
                       _id: int,
                       ):
+    data_scope.ensure_writable(curd_category.get(db, _id=_id), db, u)
     curd_category.delete(db, _id=_id, deleter_id=u['id'])
     return respSuccessJson()
 
@@ -183,6 +218,7 @@ async def delCategory(*,
 @router.get(api_url + '/media', summary="媒体列表")
 async def listMedia(*,
                     db: Session = Depends(deps.get_db),
+                    u: Users = Depends(deps.get_current_user),
                     provider_code: str = Query(None),
                     category_id: int = Query(None),
                     status: int = Query(None),
@@ -191,15 +227,20 @@ async def listMedia(*,
                     page: int = Query(1, gt=0),
                     page_size: int = Query(25, gt=0),
                     ):
+    scope_filters = data_scope.apply_scope([], curd_media.model, db, u)
     data, total, offset, limit = curd_media.queryList(
         db, provider_code=provider_code, category_id=category_id, status=status,
-        visible=visible, keyword=keyword, page=page, page_size=page_size)
+        visible=visible, keyword=keyword, extra_filters=scope_filters,
+        page=page, page_size=page_size)
     return respSuccessJson({'list': data, 'total': total, 'page': page, 'page_size': limit})
 
 
 @router.get(api_url + '/media/{_id}', summary="媒体详情")
-async def getMedia(*, db: Session = Depends(deps.get_db), _id: int):
-    data = curd_media.get(db, _id=_id)
+async def getMedia(*,
+                   db: Session = Depends(deps.get_db),
+                   u: Users = Depends(deps.get_current_user),
+                   _id: int):
+    data = _scoped_get(curd_media, db, _id, u)
     if data:
         data['episodes'] = curd_episode.getByMediaId(db, _id)
     return respSuccessJson(data)
@@ -227,6 +268,7 @@ async def setMedia(*,
                    obj: CuratedMediaSchema,
                    _id: int,
                    ):
+    data_scope.ensure_writable(curd_media.get(db, _id=_id), db, u)
     curd_media.update(db, _id=_id, obj_in=obj.dict(exclude_none=True), modifier_id=u['id'])
     return respSuccessJson()
 
@@ -237,6 +279,7 @@ async def delMedia(*,
                    u: Users = Depends(deps.user_perm([f"{access_name}:media:delete"])),
                    _id: int,
                    ):
+    data_scope.ensure_writable(curd_media.get(db, _id=_id), db, u)
     curd_episode.deleteByMediaId(db, _id)
     curd_media.delete(db, _id=_id, deleter_id=u['id'])
     return respSuccessJson()
@@ -248,6 +291,7 @@ async def batchMediaStatus(*,
                           u: Users = Depends(deps.user_perm([f"{access_name}:media:put"])),
                           obj: CuratedMediaStatusSchema,
                           ):
+    _ensure_all_writable(curd_media, db, obj.ids, u)
     for _id in obj.ids:
         curd_media.setStatus(db, _id=int(_id), status=obj.status, modifier_id=u['id'])
     return respSuccessJson()
@@ -259,6 +303,7 @@ async def batchMediaVisible(*,
                            u: Users = Depends(deps.user_perm([f"{access_name}:media:put"])),
                            obj: CuratedMediaStatusSchema,
                            ):
+    _ensure_all_writable(curd_media, db, obj.ids, u)
     for _id in obj.ids:
         curd_media.update(db, _id=int(_id), obj_in={'visible': obj.status}, modifier_id=u['id'])
     return respSuccessJson()
@@ -270,6 +315,7 @@ async def batchRemoveMedia(*,
                           u: Users = Depends(deps.user_perm([f"{access_name}:media:delete"])),
                           obj: CuratedMediaStatusSchema,
                           ):
+    _ensure_all_writable(curd_media, db, obj.ids, u)
     for _id in obj.ids:
         curd_episode.deleteByMediaId(db, int(_id))
     curd_media.deletes(db, _ids=[int(i) for i in obj.ids], deleter_id=u['id'])
@@ -282,6 +328,7 @@ async def batchCheckMedia(*,
                         u: Users = Depends(deps.user_perm([f"{access_name}:media:get"])),
                         obj: CuratedMediaCheckSchema,
                         ):
+    _ensure_all_visible(curd_media, db, obj.ids, u)
     res = curated_service.check_batch([int(i) for i in obj.ids], db=db)
     return respSuccessJson(res)
 

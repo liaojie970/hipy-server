@@ -104,9 +104,11 @@ class CURDCuratedMedia(CRUDBase):
     def queryList(self, db: Session, *, provider_code: Optional[str] = None,
                   category_id: Optional[int] = None, status: Optional[int] = None,
                   visible: Optional[int] = None, keyword: Optional[str] = None,
+                  extra_filters: Optional[List] = None,
                   page: int = 1, page_size: int = 25
                   ) -> Tuple[List[dict], int, int, int]:
-        filters = []
+        # extra_filters: 由调用方预先构造的附加过滤(如数据范围), 参与分页计数
+        filters = list(extra_filters or [])
         if provider_code:
             filters.append(self.model.provider_code == provider_code)
         if category_id is not None:
