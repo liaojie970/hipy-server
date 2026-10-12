@@ -130,6 +130,7 @@ async def getUserInfo(*,
     roles_id, roles_name, roles_key = zip(*roles)
     permissions = curd_perm_label.getLabelsByRolesID(db, roles_id)
     return respSuccessJson(data={
+        'id': u['id'],
         'email': u['email'],
         'phone': u['phone'],
         'username': u['username'],
