@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from fastapi import APIRouter, Request, Depends, Query, File, UploadFile
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from utils.encrypt import get_uuid
 from .models import Users
@@ -15,7 +16,7 @@ from .curd.curd_role import curd_role
 from .curd.curd_menu import curd_menu
 from .curd.curd_perm_label import curd_perm_label
 
-from common import deps, error_code
+from common import deps, error_code, exceptions
 
 from common.resp import respSuccessJson, respErrorJson
 
@@ -234,6 +235,10 @@ async def addRole(*,
                   u: Users = Depends(deps.user_perm(["perm:role:post"])),
                   obj: RoleSchema
                   ):
+    if obj.data_scope == 3 and not u['is_superuser']:
+        raise exceptions.UserPermError()
+    if obj.data_scope is None:
+        obj.data_scope = 2
     curd_role.create(db, obj_in=obj, creator_id=u['id'])
     return respSuccessJson()
 
@@ -245,7 +250,12 @@ async def setRole(*,
                   role_id: int,
                   obj: RoleSchema
                   ):
-    curd_role.update(db, _id=role_id, obj_in=obj, modifier_id=u['id'])
+    data = jsonable_encoder(obj)
+    if data.get('data_scope') == 3 and not u['is_superuser']:
+        raise exceptions.UserPermError()
+    if data.get('data_scope') is None:
+        data.pop('data_scope', None)
+    curd_role.update(db, _id=role_id, obj_in=data, modifier_id=u['id'])
     return respSuccessJson()
 
 

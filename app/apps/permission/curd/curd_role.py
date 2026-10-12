@@ -15,6 +15,8 @@ class CURDRole(CRUDBase):
         menus = db.query(Menus).filter(Menus.id.in_(obj_in.menus)).all()
         obj_in_data = obj_in if isinstance(obj_in, dict) else jsonable_encoder(obj_in)
         del obj_in_data['menus']
+        if obj_in_data.get('data_scope') is None:
+            obj_in_data['data_scope'] = 2
         obj_in_data['creator_id'] = creator_id
         obj = self.model(**obj_in_data)   # type: Roles
         obj.role_menu = menus
@@ -31,6 +33,7 @@ class CURDRole(CRUDBase):
             'name': role.name,
             'order_num': role.order_num,
             'status': role.status,
+            'data_scope': role.data_scope,
             'menus': [{'id': i.id} for i in role.role_menu]
         }
 
