@@ -59,6 +59,21 @@ class CuratedMediaCheckSchema(BaseModel):
     ids: list
 
 
+class CuratedMediaCategorySchema(BaseModel):
+    """批量设置分类(category_id 为空表示取消分类)"""
+    ids: list
+    category_id: Optional[int] = None
+
+
+class CuratedMediaAutoCategorySchema(BaseModel):
+    """按标题关键词自动归类未分类内容
+
+    ids 为空时处理所有未分类内容; apply=False 只预览不写库。
+    """
+    ids: Optional[list] = None
+    apply: bool = True
+
+
 class SearchSchema(BaseModel):
     provider_code: str
     keyword: str

@@ -15,12 +15,14 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from core.logger import logger
 from db.session import SessionLocal
 from .curd import (curd_curated_provider, curd_curated_category,
                    curd_curated_media, curd_curated_episode)
+from .classifier import classify_title
 from .providers import get_provider, list_providers
 
 
@@ -300,6 +302,59 @@ class CuratedService:
             'skipped_count': len(skipped),
             'failed': len(errors),
         }
+
+    # ------------------------------------------------------------------
+    # 分类: 按标题关键词智能归类
+    # ------------------------------------------------------------------
+    def auto_classify(self, ids=None, *, apply: bool = False, extra_filters=None,
+                      modifier_id: int = 0, db: Optional[Session] = None) -> dict:
+        """按标题关键词给【未分类】内容归类(供后台「智能归类」按钮使用)。
+
+        - 只处理 category_id 为 NULL/0 的记录, 不会覆盖已有分类;
+        - ids 非空时只处理这些 id;
+        - extra_filters 用于叠加调用方的数据范围过滤;
+        - apply=False 时只返回归类预览, 不写库。
+        """
+        model = curd_curated_media.model
+        with _session(db) as _db:
+            cats = {c['name']: c['id'] for c in curd_curated_category.getEnabledCategories(_db)}
+            q = _db.query(model.id, model.title).filter(
+                model.is_deleted == 0,
+                or_(model.category_id.is_(None), model.category_id == 0),
+            )
+            if ids:
+                q = q.filter(model.id.in_([int(i) for i in ids]))
+            if extra_filters:
+                q = q.filter(*extra_filters)
+            rows = [{'id': r[0], 'title': r[1]} for r in q.all()]
+
+            buckets: Dict[int, dict] = {}
+            for row in rows:
+                name = classify_title(row['title'])
+                cid = cats.get(name)
+                if cid is None:
+                    logger.warning(f'[curated] 自动归类目标分类不存在, 已跳过: {name}')
+                    continue
+                buckets.setdefault(cid, {'category': name, 'items': []})['items'].append(row)
+
+            plan, updated = [], 0
+            for cid, bucket in sorted(buckets.items(), key=lambda kv: -len(kv[1]['items'])):
+                items = bucket['items']
+                plan.append({
+                    'category': bucket['category'],
+                    'category_id': cid,
+                    'count': len(items),
+                    'ids': [i['id'] for i in items],
+                    'samples': [i['title'] for i in items[:10]],
+                })
+                if apply:
+                    updated += _db.query(model).filter(
+                        model.id.in_([i['id'] for i in items])
+                    ).update({'category_id': cid, 'modifier_id': modifier_id},
+                             synchronize_session=False)
+            if apply and updated:
+                _db.commit()
+            return {'total': len(rows), 'updated': updated, 'applied': apply, 'plan': plan}
 
     # ------------------------------------------------------------------
     # 播放

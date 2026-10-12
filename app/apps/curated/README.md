@@ -41,6 +41,8 @@ apps/curated/
 | GET  | `/media` `/media/{id}` | 内容库列表/详情(含选集) |
 | POST | `/media/batch` | 批量入库(三层去重、并发补详情) |
 | PUT  | `/media/status/batch` | 批量审核 |
+| PUT  | `/media/category/batch` | 批量设置分类 |
+| POST | `/media/category/auto` | 智能归类(按标题关键词, 仅处理未分类) |
 | POST | `/media/visible/batch` | 批量显示/隐藏 |
 | POST | `/media/remove/batch` | 批量删除 |
 | POST | `/search` | 站点搜索 |

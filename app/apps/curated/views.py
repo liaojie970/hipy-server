@@ -19,7 +19,8 @@ from .curd import (curd_curated_provider as curd_provider,
 from .schemas import (CuratedProviderSchema, ProviderTestSchema,
                       CuratedCategorySchema, CuratedMediaSchema,
                       CuratedMediaBatchSchema, CuratedMediaStatusSchema,
-                      CuratedMediaCheckSchema,
+                      CuratedMediaCheckSchema, CuratedMediaCategorySchema,
+                      CuratedMediaAutoCategorySchema,
                       SearchSchema, ResolveSchema)
 from .service import curated_service
 
@@ -307,6 +308,34 @@ async def batchMediaVisible(*,
     for _id in obj.ids:
         curd_media.update(db, _id=int(_id), obj_in={'visible': obj.status}, modifier_id=u['id'])
     return respSuccessJson()
+
+
+@router.put(api_url + '/media/category/batch', summary="批量设置分类")
+async def batchMediaCategory(*,
+                             db: Session = Depends(deps.get_db),
+                             u: Users = Depends(deps.user_perm([f"{access_name}:media:put"])),
+                             obj: CuratedMediaCategorySchema,
+                             ):
+    _ensure_all_writable(curd_media, db, obj.ids, u)
+    for _id in obj.ids:
+        curd_media.update(db, _id=int(_id), obj_in={'category_id': obj.category_id},
+                          modifier_id=u['id'])
+    return respSuccessJson()
+
+
+@router.post(api_url + '/media/category/auto', summary="智能归类(按标题关键词)")
+async def autoMediaCategory(*,
+                            db: Session = Depends(deps.get_db),
+                            u: Users = Depends(deps.user_perm([f"{access_name}:media:put"])),
+                            obj: CuratedMediaAutoCategorySchema,
+                            ):
+    # 数据范围: 未传 ids 时按范围过滤, 只处理当前用户可写的记录
+    scope_filters = data_scope.apply_scope([], curd_media.model, db, u)
+    if obj.ids:
+        _ensure_all_writable(curd_media, db, obj.ids, u)
+    res = curated_service.auto_classify(obj.ids, apply=obj.apply, extra_filters=scope_filters,
+                                        modifier_id=u['id'], db=db)
+    return respSuccessJson(res)
 
 
 @router.post(api_url + '/media/remove/batch', summary="批量删除媒体")
