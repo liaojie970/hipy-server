@@ -27,6 +27,7 @@ class RoleSchema(BaseModel):
     key: str
     order_num: int = 0
     status: int = 0
+    data_scope: Optional[conint(ge=1, le=3)] = None
     menus: List[int] = []
 
 
