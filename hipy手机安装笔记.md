@@ -319,3 +319,56 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
         全 dist 已无 navigator.clipboard、无绝对 IP。
   部署: 新 dist 覆盖 $HOME/hipy/dist (旧版备份 dist.bak_<ts>), 无需重启 spa_server。
 ================================================================
+
+六、TVBox 播放 B站(精选库)失败修复 (2026-10-12)
+  现象: 用手机配置 http://192.168.1.113:8080/config/0?sub=qinzi01 在 TVBox 里,
+        列表/详情能出来, 但点开 B站视频播放不了(无地址/黑屏);
+        换成电脑配置 http://192.168.1.110:5707/config/0?sub=qinzi01 就正常。
+  排查(不靠猜, 直接对比):
+    1) 两份 /config/0?sub=qinzi01 结构完全一致, 只有 host 不同 =>
+       排除配置/端口问题。
+    2) 直接打源接口对比:
+       - ac=list   : PC5707 / 手机8080 / 手机5707 均 200, 21495 字节, 完全一致;
+       - ac=detail : 三者均 200, 4842 字节, 完全一致;
+       - play=...  : PC5707 => 200, 991 字节(真实 bilivideo.com 地址);
+                     手机8080 / 手机5707 => 200, 82 字节(url 为空)。
+       => 失败在「手机后端自身」, 8080 反向代理只是如实返回; 与端口/代理无关。
+    3) 手机后端日志: `[亲子精选] 解析播放失败: string index out of range`
+       —— 正是 bilibili.py 的 _get_mixin_key() 对 <64 字符串索引越界。
+    4) 顺着看: _get_mixin_key 入参 = img_key + sub_key(各 32 位),
+       来自 api.bilibili.com/x/web-interface/nav 的 wbi_img; 取不到才越界。
+  根因: 精选库站点(哔哩哔哩)的 config 里存了 proxy = "127.0.0.1:7897"
+        (电脑上的 Clash/V2Ray 本机代理)。
+        - 电脑: 127.0.0.1:7897 有 Clash 在听 => B站请求走代理 => 正常;
+        - 手机: 127.0.0.1:7897 是手机自己的回环, 无人监听 =>
+                连接立即被拒 => nav 拿不到 wbi_img => 索引越界 => 播放地址为空。
+        (失败仅 0.09s, 是 loopback 拒绝, 不是超时。)
+        网络本身没问题: 手机直连 api.bilibili.com 返回 200 且有 wbi_img。
+  修复: apps/curated/providers/base.py 的 setup_session_proxy 增加回退:
+        若代理是回环地址(127.0.0.1/localhost/::1)且端口无人监听, 自动改直连,
+        避免把 A 机器的代理配置同步到 B 机器后无法播放。
+        - 电脑: 7897 在听 => 判定存活 => 仍走代理, 行为不变;
+        - 手机: 7897 无人 => 自动直连 => B站解析恢复正常。
+        实现: 新增 _is_dead_loopback_proxy(), 用 socket.connect_ex 探测(0.5s)。
+  验证: play 请求三者均 200 / 991 字节(真实 bilivideo.com 地址 + Referer)。
+  部署: 覆盖 $HOME/hipy/app/apps/curated/providers/base.py 后重启后端
+        (pkill -f "python main.py"; setsid bash start_backend.sh)。前端无需改。
+  备注: 站点配置里的 proxy 不必手动改; 想显式直连可把 proxy 填 none/direct。
+
+  配套(前端, 2026-10-12): 「站点管理 → 修改站点」的「网络代理」由纯文本框改为开关:
+        - 开关关闭(默认) => 保存 proxy='none', 强制直连;
+        - 开关开启 => 显示「代理地址」输入框, 必填, 保存该地址。
+        打开旧记录时按已有 proxy 自动还原开关状态(none/direct 视为关闭)。
+        列表「代理」列显示: 直连 / 具体地址 / 跟随系统(空值)。
+        文件: src/views/curated/providers/index.vue
+              (isDirectProxy / collectConfig / handleUpdate / 表单 / 列表列)。
+        坑(Vue2 响应式): useProxy 是后加到 form.config 上的新属性, Vue2 侦测不到,
+              导致开关点击无反应(新增/修改弹窗都中招, 因为两者共用同一个弹窗)。
+              修复: 新增 emptyConfig() 预置 {useProxy:false,cookie:'',qn:undefined,
+              proxy:''}; 打开记录时先合并成完整对象再赋给 form(而非事后追加属性)。
+        新包: app.34bb9bfd.js, chunk-5b586bce.6d02154c.js(含 使用代理/强制直连 文案)。
+  部署(前端): 新 dist 覆盖 $HOME/hipy/dist (旧版备份 dist.bak_<ts>), spa_server 无需重启。
+  设计说明: 代理是「本机环境相关」设置, 不应随配置跨机同步。开关默认直连 +
+        后端回环代理自动回退, 双保险, 避免再次出现「电脑代理带到手机」。
+  注: 「新增站点」与「修改站点」是同一个 el-dialog(共享模板), 开关两处均生效。
+================================================================

@@ -6,6 +6,7 @@
 所有内容站点(Provider)都需要实现本基类。
 新增站点时, 继承 BaseProvider 并在 registry 中注册即可。
 """
+import socket
 from typing import Any, Dict, List, Optional
 
 
@@ -39,12 +40,34 @@ class BaseProvider:
                 return 'direct'
             if '://' not in proxy:
                 proxy = 'http://' + proxy
+            # 代理指向本机回环但端口无人监听(常见于把 A 机器的配置同步到了 B 机器),
+            # 此时请求必然被本机代理拒绝, 自动回退直连, 避免播放解析莫名失败。
+            if self._is_dead_loopback_proxy(proxy):
+                session.trust_env = False
+                session.proxies = {}
+                return 'direct(loopback proxy unreachable, fallback)'
             session.trust_env = False
             session.proxies = {'http': proxy, 'https': proxy}
             return proxy
         # 未配置: 遵循系统/环境代理
         session.trust_env = True
         return 'system'
+
+    @staticmethod
+    def _is_dead_loopback_proxy(proxy: str) -> bool:
+        """判断代理是否为「本机回环地址且端口未监听」"""
+        try:
+            from urllib.parse import urlparse
+            u = urlparse(proxy)
+            host = (u.hostname or '').lower()
+            port = u.port
+            if host not in ('127.0.0.1', 'localhost', '::1', '0.0.0.0') or not port:
+                return False
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                return s.connect_ex(('127.0.0.1', port)) != 0
+        except Exception:  # noqa
+            return False
 
     # ------------------------------------------------------------------
     # 以下方法由子类实现
