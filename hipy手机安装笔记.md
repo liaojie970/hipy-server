@@ -298,3 +298,24 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
      submitForgetPassword 改用 getWebHost(request) 生成邮件里的注册/找回链接。
   => 至此 IP 无关化覆盖: 网页接口、tvbox 配置、邮件链接。
 ================================================================
+
+五、内容库「儿童专用配置」复制按钮修复 (2026-10-12)
+  现象: http://<手机IP>:8080/curated/media 中「儿童专用配置」弹窗里
+        「配置地址」的「复制」按钮点了没反应(剪贴板没写入)。
+  原因: src/views/curated/media/index.vue 的 copyKidUrl() 用了
+        navigator.clipboard.writeText(); 而该异步剪贴板 API 只在
+        「安全上下文」(HTTPS / localhost / 127.0.0.1) 才存在。
+        局域网 http://192.168.1.113:8080 属非安全上下文 =>
+        navigator.clipboard 为 undefined => 走 else 分支只弹提示、不复制。
+        (开发时用 http://localhost:8080 所以是好的, 搬上手机才暴露。)
+  说明: 不是本次 IP 无关化改动引入的 —— 旧包(10-10)与新包(10-12)里该函数
+        编译结果完全一致, 从页面诞生(提交 5719a8b)起就是这样。
+  修复: 改用项目内置的 vue-clipboard2 (main.js 已 Vue.use(VueClipboard)),
+        即 this.$copyText(url) —— 内部走 document.execCommand('copy'),
+        在 http 下也能复制。与 vod/rules/edit.vue 等页面写法统一。
+  重建: node16 构建曾 OOM(Fatal process out of memory: Zone),
+        需 NODE_OPTIONS=--max-old-space-size=6144 再 npm run build:prod。
+  产物: 新主包 app.da8d47bb.js, curated chunk-6120d593.3da73da8.js;
+        全 dist 已无 navigator.clipboard、无绝对 IP。
+  部署: 新 dist 覆盖 $HOME/hipy/dist (旧版备份 dist.bak_<ts>), 无需重启 spa_server。
+================================================================
