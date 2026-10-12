@@ -114,8 +114,10 @@ class Settings(BaseSettings):
     # os.path.join(constants.BASE_DIR, './templates/')
     WEB_TEMPLATES_DIR: str = os.path.abspath(os.path.join(constants.BASE_DIR, "./templates/"))  # 网页模板路径
 
-    # 数据库升级执行码
-    DATABASE_UPDATE_AUTH: str = 'hjdhnx'
+    # 数据库升级/刷新源列表 执行码（必填）
+    # 必须通过环境变量 DATABASE_UPDATE_AUTH 或 .env 提供；未配置时相关接口直接拒绝执行。
+    # 历史版本此处硬编码为 'hjdhnx'（与账号名同名且仓库可见），存在未授权调用风险，已移除默认值。
+    DATABASE_UPDATE_AUTH: Optional[str] = None
 
     # 一些记录数据的路径
     NOTES_PATH: str = './log/notes.json'

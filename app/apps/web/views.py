@@ -36,6 +36,7 @@ from apps.vod.curd.curd_configs import curd_vod_configs
 from apps.vod.curd.curd_subs import curd_vod_subs
 from apps.vod.views.views_rules import doRefresh
 from apps.permission.curd.curd_user import curd_user
+from apps.permission.models import Users
 from pathlib import Path
 import ast
 import requests
@@ -67,6 +68,8 @@ except ImportError:
 router = APIRouter()
 # htmler2 = Jinja2Templates(directory="templates")
 htmler2 = Jinja2Templates(directory=settings.WEB_TEMPLATES_DIR)
+
+access_name = 'web'
 
 # 存储所有连接到 WebSocket 的客户端
 client_websockets = []
@@ -798,8 +801,17 @@ def get_js_vip_parse(*,
 
 
 @router.put('/database_update', summary="数据库升级")
-async def database_update(obj: database_schemas.updateSchema):
-    if obj.auth_code == settings.DATABASE_UPDATE_AUTH:
+async def database_update(*,
+                          obj: database_schemas.updateSchema,
+                          current_user: Users = Depends(deps.get_current_user),
+                          _perm: Users = Depends(deps.user_perm([f"{access_name}:database_update:put"])),
+                          ):
+    # 第一道防线: 登录 + 权限(deps)。第二道防线: 请求体 auth_code。
+    auth_code = settings.DATABASE_UPDATE_AUTH or ''
+    if not auth_code:
+        # 未配置执行码时拒绝执行, 不再使用任何硬编码默认值
+        return respSuccessJson(data={"error": error_code.ERROR_DATABASE_AUTH_NOT_CONFIGURED.msg})
+    if obj.auth_code == auth_code:
         code, result = update_db()
         if code == 0:
             return respSuccessJson()
@@ -814,12 +826,20 @@ async def database_update(obj: database_schemas.updateSchema):
 async def rules_refresh(*,
                         db: Session = Depends(deps.get_db),
                         r: asyncRedis = Depends(deps.get_redis),
-                        obj: database_schemas.updateSchema):
+                        obj: database_schemas.updateSchema,
+                        current_user: Users = Depends(deps.get_current_user),
+                        _perm: Users = Depends(deps.user_perm([f"{access_name}:rules_refresh:put"])),
+                        ):
+    # 第一道防线: 登录 + 权限(deps)。第二道防线: 请求体 auth_code。
+    auth_code = settings.DATABASE_UPDATE_AUTH or ''
+    if not auth_code:
+        # 未配置执行码时拒绝执行, 不再使用任何硬编码默认值
+        return respSuccessJson(data={"error": error_code.ERROR_RULES_REFRESH_AUTH_NOT_CONFIGURED.msg})
     u = {'id': 1, 'name': 'admin'}
     user_admin = curd_user.getByUserName(db, 'admin')
     if user_admin:
         u = user_admin.dict()
-    if obj.auth_code == settings.DATABASE_UPDATE_AUTH:
+    if obj.auth_code == auth_code:
         resp = await doRefresh(db, r, u)
         return resp
     else:

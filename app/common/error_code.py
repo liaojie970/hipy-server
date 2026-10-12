@@ -44,6 +44,8 @@ ERROR_HIKER_DEVELOPER_ADD_ERROR = ErrorBase(code=5102, msg="开发者添加失�
 ERROR_DATABASE_AUTH_ERROR = ErrorBase(code=5200, msg="数据库升级执行码错误")
 ERROR_RULES_REFRESH_AUTH_ERROR = ErrorBase(code=5200, msg="刷新源列表执行码错误")
 ERROR_DATABASE_CMD_ERROR = ErrorBase(code=5201, msg="数据库升级脚本执行错误")
+ERROR_DATABASE_AUTH_NOT_CONFIGURED = ErrorBase(code=5202, msg="数据库升级执行码未配置，请联系管理员")
+ERROR_RULES_REFRESH_AUTH_NOT_CONFIGURED = ErrorBase(code=5202, msg="刷新源列表执行码未配置，请联系管理员")
 
 ERROR_TASK_NOT_FOUND = ErrorBase(code=4004, msg="任务未找到")
 ERROR_TASK_INVALID = ErrorBase(code=4005, msg="定时任务执行异常")

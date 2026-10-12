@@ -96,12 +96,13 @@ def init_params(db: Session) -> None:
     config_ids.append(configs)
     configs = db.query(ConfigSettings.value).filter(
         ConfigSettings.key == 'database_update_auth').first()
-    if not configs:
+    # DATABASE_UPDATE_AUTH 需通过环境变量/.env 提供; 未配置时不写入, 避免向 nullable=False 列插入空值
+    if not configs and settings.DATABASE_UPDATE_AUTH:
         obj_in = {
             "name": "数据库升级密码",
             "key": "database_update_auth",
             "value": settings.DATABASE_UPDATE_AUTH,
-            "remark": "默认密码hjdhnx",
+            "remark": "由环境变量 DATABASE_UPDATE_AUTH 提供",
             "status": 0,
             "order_num": 10,
         }
