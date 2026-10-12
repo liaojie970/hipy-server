@@ -13,6 +13,7 @@ class Roles(Base):
     name = Column(String(256), default="", server_default="", comment="权限名称")
     order_num = Column(Integer, default=0, server_default="0", comment="顺序")
     status = Column(Integer, default=0, server_default="0", comment="状态(0: 正常, 1: 停用)") 
+    data_scope = Column(Integer, nullable=False, server_default="2", comment="数据范围 1仅本人 2本人+公共只读 3全部")
     
     role_menu = relationship("Menus", backref="role", secondary=f"{settings.SQL_TABLE_PREFIX}role_menu")
 
