@@ -20,6 +20,28 @@ from apps.monitor.curd.curd_job_log import curd_job_log
 from numpy import safe_eval
 from tasks.active_sniffer import active_sniffer_after_run
 
+# 嗅探器激活任务: 连续失败达到上限后自我移除, 避免每 5 秒无限重试
+SNIFFER_JOB_ID = 'active_sniffer_after_run'
+SNIFFER_RETRY_LIMIT = 5
+_sniffer_fail_count = {}
+
+
+def _is_sniffer_job(job, job_id):
+    return job.name == SNIFFER_JOB_ID or job_id == SNIFFER_JOB_ID
+
+
+def _sniffer_on_success(job_id):
+    _sniffer_fail_count.pop(job_id, None)
+
+
+def _sniffer_on_failure(job_id):
+    count = _sniffer_fail_count.get(job_id, 0) + 1
+    _sniffer_fail_count[job_id] = count
+    if count >= SNIFFER_RETRY_LIMIT:
+        del_job(SNIFFER_JOB_ID)
+        _sniffer_fail_count.pop(job_id, None)
+        logger.info('---嗅探器激活连续失败%s次, 已停止自动重试(仅本次启动)---', SNIFFER_RETRY_LIMIT)
+
 
 def job_listener(Event):
     job = scheduler.get_job(Event.job_id)
@@ -39,6 +61,7 @@ def job_listener(Event):
     } if db_job else {}
 
     if job:
+        is_sniffer = _is_sniffer_job(job, Event.job_id)
         if not Event.exception:
             logger.info("jobname=%s|jobtrigger=%s|jobtime=%s|retval=%s", job.name, job.trigger,
                         Event.scheduled_run_time, Event.retval)
@@ -47,9 +70,15 @@ def job_listener(Event):
             if Event.retval and ('激活成功' in Event.retval or '传入的url不合法' in Event.retval):
                 del_job(obj_in['job_name'])
                 logger.info('---嗅探器已激活---')
+                if is_sniffer:
+                    _sniffer_on_success(Event.job_id)
             elif Event.retval and '无法激活' in Event.retval:
                 del_job(obj_in['job_name'])
                 logger.info('---嗅探器无法激活,缺少playwright---')
+                if is_sniffer:
+                    _sniffer_on_success(Event.job_id)
+            elif is_sniffer:
+                _sniffer_on_failure(Event.job_id)
 
         else:
             logger.error("jobname=%s|jobtrigger=%s|errcode=%s|exception=[%s]|traceback=[%s]|scheduled_time=%s",
@@ -58,6 +87,8 @@ def job_listener(Event):
                          Event.exception, Event.traceback, Event.scheduled_run_time)
             obj_in = {'job_name': job.name, 'run_time': Event.scheduled_run_time, 'run_status': 0,
                       'run_info': f'{Event.traceback}', 'run_except_info': f'{Event.exception}'}
+            if is_sniffer:
+                _sniffer_on_failure(Event.job_id)
     else:
         logger.info("任务执行一次后已自动清除:job_id=%s|jobtime=%s|retval=%s", Event.job_id, Event.scheduled_run_time,
                     Event.retval)
