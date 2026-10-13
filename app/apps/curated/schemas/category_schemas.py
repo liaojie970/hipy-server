@@ -11,6 +11,8 @@ class CuratedCategorySchema(BaseModel):
     icon: Optional[str] = None
     status: Optional[int] = 1
     order_num: Optional[int] = 1
+    keywords: Optional[str] = None
+    is_default: Optional[int] = None
     remark: Optional[str] = None
 
 

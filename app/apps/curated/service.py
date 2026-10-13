@@ -22,7 +22,7 @@ from core.logger import logger
 from db.session import SessionLocal
 from .curd import (curd_curated_provider, curd_curated_category,
                    curd_curated_media, curd_curated_episode)
-from .classifier import classify_title
+from .classifier import classify_title, compile_rules, pick_default_name
 from .providers import get_provider, list_providers
 
 
@@ -308,8 +308,9 @@ class CuratedService:
     # ------------------------------------------------------------------
     def auto_classify(self, ids=None, *, apply: bool = False, extra_filters=None,
                       modifier_id: int = 0, db: Optional[Session] = None) -> dict:
-        """按标题关键词给【未分类】内容归类(供后台「智能归类」按钮使用)。
+        """按「分类管理」配置的关键词给【未分类】内容归类。
 
+        - 规则动态来自分类表的 keywords / order_num / is_default, 不再是硬编码;
         - 只处理 category_id 为 NULL/0 的记录, 不会覆盖已有分类;
         - ids 非空时只处理这些 id;
         - extra_filters 用于叠加调用方的数据范围过滤;
@@ -317,7 +318,10 @@ class CuratedService:
         """
         model = curd_curated_media.model
         with _session(db) as _db:
-            cats = {c['name']: c['id'] for c in curd_curated_category.getEnabledCategories(_db)}
+            categories = curd_curated_category.getEnabledCategories(_db)
+            cats_by_name = {c['name']: c['id'] for c in categories if c.get('name')}
+            rules = compile_rules(categories)
+            default_name = pick_default_name(categories)
             q = _db.query(model.id, model.title).filter(
                 model.is_deleted == 0,
                 or_(model.category_id.is_(None), model.category_id == 0),
@@ -329,11 +333,14 @@ class CuratedService:
             rows = [{'id': r[0], 'title': r[1]} for r in q.all()]
 
             buckets: Dict[int, dict] = {}
+            skipped = 0
             for row in rows:
-                name = classify_title(row['title'])
-                cid = cats.get(name)
+                name = classify_title(row['title'], rules) or default_name
+                cid = cats_by_name.get(name) if name else None
                 if cid is None:
-                    logger.warning(f'[curated] 自动归类目标分类不存在, 已跳过: {name}')
+                    # 既未命中规则, 又没有可用的兜底分类名(通常是没有 is_default 分类)
+                    skipped += 1
+                    logger.warning(f'[curated] 自动归类无可用目标分类, 已跳过: {row["title"]}')
                     continue
                 buckets.setdefault(cid, {'category': name, 'items': []})['items'].append(row)
 
@@ -354,7 +361,8 @@ class CuratedService:
                              synchronize_session=False)
             if apply and updated:
                 _db.commit()
-            return {'total': len(rows), 'updated': updated, 'applied': apply, 'plan': plan}
+            return {'total': len(rows), 'updated': updated, 'applied': apply,
+                    'skipped': skipped, 'plan': plan}
 
     # ------------------------------------------------------------------
     # 播放

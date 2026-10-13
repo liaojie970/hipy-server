@@ -44,6 +44,67 @@ def _auto_add_columns() -> None:
 _auto_add_columns()
 
 
+# 智能归类的初始配置: 仅当「分类管理」尚未配置时写入一次, 之后完全由后台维护
+_CLASSIFY_SEED = [
+    ('语文', 1,
+     r'(?<!双)语文|大语文|国学|唐诗|宋词|古诗|汉字|拼音|成语|三字经|弟子规|千字文|三十六计|文言文|跟着书本去旅行'),
+    ('数学', 2, r'数学|数字积木|奥数|几何|算术|数理'),
+    ('艺术', 3, r'写字|书法|美术|绘画|声乐|钢琴|乐器|舞蹈|武术'),
+    ('儿童科普纪录片', 4,
+     r'纪录片|科普|百科|国家地理|National Geographic|微观小世界|小小世界|神奇校车|昆虫|恐龙|STEM|大自然|自然界'),
+    ('英语', 5,
+     r'英语|英文|英文字幕|双语|双字幕|美语|美音|口语|听力|音标|自然拼读|单词|词汇|磨耳朵|'
+     r'新概念|走遍美国|雅思|托福|English|Phonics|字母积木|分级阅读|绘本|播客|Podcast'),
+    ('奥斯卡奖&经典动画', 6, r'奥斯卡|动画短片|经典动画'),
+]
+_CLASSIFY_DEFAULT_NAME = '英语'
+
+
+def _seed_classify_defaults() -> None:
+    """首次为「分类管理」补齐智能归类的关键词/排序/兜底分类。
+
+    - 仅在字段为空时写入, 绝不覆盖用户已配置的值;
+    - 仅当所有分类的 order_num 完全相同时(即尚未手动排序)才自动分配优先级;
+    - 之后规则完全由「分类管理」维护, 启动不再改动。
+    """
+    db = None
+    try:
+        from db.session import SessionLocal
+        db = SessionLocal()
+        cats = db.query(CuratedCategory).filter(CuratedCategory.is_deleted == 0).all()
+        if not cats:
+            return
+        by_name = {c.name: c for c in cats}
+        all_same_order = len({(c.order_num or 0) for c in cats}) <= 1
+        changed = False
+        for name, order, keywords in _CLASSIFY_SEED:
+            c = by_name.get(name)
+            if c is None:
+                continue
+            if not (c.keywords or '').strip():
+                c.keywords = keywords
+                changed = True
+            if all_same_order and (c.order_num or 0) != order:
+                c.order_num = order
+                changed = True
+        if not any((c.is_default or 0) == 1 for c in cats):
+            (by_name.get(_CLASSIFY_DEFAULT_NAME) or cats[0]).is_default = 1
+            changed = True
+        if changed:
+            db.commit()
+            logger.info('[curated] 已初始化智能归类关键词/排序/兜底分类')
+    except Exception as e:  # noqa
+        if db is not None:
+            db.rollback()
+        logger.warning(f'[curated] 初始化智能归类默认值失败(忽略): {e}')
+    finally:
+        if db is not None:
+            db.close()
+
+
+_seed_classify_defaults()
+
+
 def _ensure_unique_index() -> None:
     """为 curated_media 建立 (provider_code, media_id) 唯一索引(数据库层硬约束)。
 
