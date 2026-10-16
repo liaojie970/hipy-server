@@ -128,9 +128,9 @@ bash ~/hipy/stop_all.sh
 |------|------|------|
 | 后端（数据处理） | 5707 | 提供接口、处理业务 |
 | 前端（网页界面） | 8080 | 你在浏览器里看到的页面；同时把接口请求转发给后端 |
-| 缓存（redis） | 6379 | 临时存储，加快速度 |
+| 缓存（内存/redis） | 6379 | 临时存储，加快速度。默认用进程内内存（无需端口）；仅切回 redis 后端时占用 6379 |
 
-> 三个缺一不可，所以推荐直接用 `start_all.sh` 一键启动。
+> 后端 + 前端两个是必需的，推荐直接用 `start_all.sh` 一键启动。
 
 ### 4.5 让系统「不容易被手机杀掉」
 
@@ -166,8 +166,19 @@ bash ~/hipy/stop_all.sh
 - 只要在手机 Termux 里执行 `bash ~/hipy/start_all.sh`，它会打印出当前网址，用那个网址打开即可。
 - **建议**：在路由器里给这台手机绑定一个固定 IP（DHCP 静态分配），方便记忆，SSH 也更省心。
 
-**Q5：页面能打开，但登录或数据加载失败？**
-说明前端正常、后端或缓存有问题。在 Termux 执行 `bash ~/hipy/start_all.sh` 重启一遍通常能解决。
+**Q5：页面能打开，但登录时报「内部错误」、或数据加载失败？**
+
+先确认后端在跑：`curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5707/docs` 应为 200。
+
+- **现在（2026-10-16 起）手机默认使用「内存缓存」**（`configs/.env` 里 `CACHE_BACKEND=memory`），不再依赖 Redis，
+  所以以前那种「Redis 一挂、登录就 500」的问题不会再出现。
+- 如果仍报内部错误，多半是后端没起来：执行 `bash ~/hipy/start_all.sh`，再看 `~/hipy/backend.log`。
+- 若确实想切回 Redis：把 `~/hipy/app/configs/.env` 的 `CACHE_BACKEND` 改为 `redis`，
+  再 `bash ~/hipy/stop_all.sh && bash ~/hipy/start_all.sh`（脚本会自动启动 Redis）。
+
+> 内存缓存说明：**重启后端会清空缓存，需要重新登录**；仅单进程有效（手机是单进程，无影响）。
+> 历史坑备查：ARM64 手机内核 COW 缺陷会让 Redis 后台保存时主动退出（`~/redis.log` 里的 `ARM64-COW-BUG`），
+> 需带 `--ignore-warnings ARM64-COW-BUG` 启动；改用内存缓存后该问题已与使用者无关。
 
 **Q6：能在外面（不用这个 WiFi）访问吗？**
 不能。当前只开放了局域网访问。如需外网访问，需要额外配置，属于技术范畴。
@@ -193,7 +204,7 @@ bash ~/hipy/stop_all.sh
 - 设备：小米 9 SE，arm64，Android 11，**未 root**
 - 方式：**Termux 裸跑**（不使用 proot/Ubuntu），用 pyenv 从源码编译 **Python 3.12.8**
 - 数据库：SQLite（文件 `~/hipy/app/db/hipy.db`，已自带初始数据）
-- 缓存：Termux 版 redis
+- 缓存：默认**进程内内存**（`CACHE_BACKEND=memory`，无需 Redis）；可选 Termux 版 redis
 - 前端：在电脑上用 nvm + node16 构建（接口地址使用相对路径），产物拷到手机；由自写的 `spa_server.py` 提供静态页面，并把 `/api`、`/media` 等请求**反向代理**到后端
 
 ### 6.2 关键步骤
@@ -203,7 +214,7 @@ bash ~/hipy/stop_all.sh
 3. `pip` 配置清华镜像，安装项目依赖
 4. 部署后端代码到 `~/hipy/app`，配置 `configs/.env`
 5. 电脑上 `npm run build:prod` 构建前端，拷贝到 `~/hipy/dist`
-6. 启动 redis、后端(5707)、前端(8080)
+6. 启动后端(5707)、前端(8080)（内存缓存模式无需 redis）
 
 ### 6.3 两个最关键的坑（否则装不上）
 
@@ -226,13 +237,13 @@ bash ~/hipy/stop_all.sh
 ├── app/               后端代码（含适配补丁）
 ├── dist/              前端静态页面
 ├── spa_server.py      前端静态服务器 + 反向代理（支持刷新不 404，并把接口请求转给后端）
-├── start_all.sh       一键启动（redis + 后端 + 前端）
+├── start_all.sh       一键启动（按 CACHE_BACKEND 决定是否启动 redis + 后端 + 前端）
 ├── stop_all.sh        一键停止
 ├── start_backend.sh   只启动后端
 ├── start_frontend.sh  只启动前端
 ├── backend.log        后端日志
 └── frontend.log       前端日志
-~/redis.log            缓存日志
+~/redis.log            缓存日志（仅切回 redis 后端时产生）
 ```
 
 ### 6.6 配置说明（`~/hipy/app/configs/.env` 关键项）
@@ -243,7 +254,8 @@ bash ~/hipy/stop_all.sh
 | `PORT` | 5707 | 后端端口 |
 | `API_DOMAIN` | http://127.0.0.1:5707 | 后端对外地址（设为 127.0.0.1 = 跟随访问来源，从而实现 IP 无关） |
 | `WEB_DOMAIN` | http://192.168.1.113:8080 | 前端对外地址（仅用于邮件里的注册/找回链接）。代码已处理：内网地址会自动改用「访问来源」，同样与 IP 无关；若填公网域名则用该域名 |
-| `REDIS_PASSWORD` | 123456 | 缓存密码 |
+| `REDIS_PASSWORD` | 123456 | 缓存密码（仅 `CACHE_BACKEND=redis` 时使用） |
+| `CACHE_BACKEND` | memory | 缓存后端：`memory`（进程内内存，默认）/ `redis` |
 | `DEFAULT_SNIFFER` | hipy-sniffer | 嗅探器类型（当前未启用 playwright） |
 
 ---
@@ -255,7 +267,7 @@ bash ~/hipy/stop_all.sh
 3. **不会开机自启**：手机重启后需手动执行 `start_all.sh`。
 4. **小米省电**：务必给 Termux 设置「无限制」，否则容易被系统杀掉。
 5. **嗅探器功能未启用**：当前配置下不加载 playwright/selenium，相关功能不可用。
-6. **Redis 有密码**：`123456`，仅本机使用，请勿暴露到公网。
+6. **缓存后端**：默认 `CACHE_BACKEND=memory`（进程内内存，无需 Redis）；如切回 `redis`，其密码为 `123456`，仅本机使用，请勿暴露到公网。内存缓存**重启后端会清空，需重新登录**。
 
 ---
 

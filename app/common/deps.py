@@ -51,12 +51,20 @@ def get_db_connect() -> Generator:
             conn.close()
 
 
-def get_redis(request: Request) -> Optional[Redis]:
-    redis = request.app.state.redis
-    if redis:
-        # if redis := request.app.state.redis:   # python3.8+
-        return redis
-    return None
+def get_cache(request: Request):
+    """
+    获取统一缓存后端(可能是 RedisCache, 也可能是 MemoryCache)。
+    接口与 redis.asyncio.Redis 对齐, 调用方无需区分具体后端。
+    :param request:
+    """
+    cache = getattr(request.app.state, 'cache', None)
+    if cache is None:
+        cache = getattr(request.app.state, 'redis', None)
+    return cache
+
+
+# 兼容旧名称: 现在返回的是统一缓存后端对象(Redis 或 内存)
+get_redis = get_cache
 
 
 def get_email_sender() -> Optional[EmailSender]:

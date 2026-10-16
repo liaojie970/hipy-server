@@ -14,7 +14,7 @@ from core.config import settings
 from core.middleware import middleware
 from core.logger import logger
 # from common.middleware import RequestsLoggerMiddleware
-from db.cache import registerRedis
+from db.cache import registerCache
 # from tasks.timer import scheduler # 这个是没固化数据库的。scheduler.start() 启动
 from common.task_apscheduler import scheduler_register, scheduler  # 固化数据库,scheduler.init_scheduler() 初始化
 from utils.notes import set_start_time
@@ -49,8 +49,8 @@ class InitializeApp(object):
         # app.add_middleware(CORSMiddleware, allow_origins=settings.BACKEND_CORS_ORIGINS,
         #                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-        # set redis
-        registerRedis(app)
+        # set cache (redis or memory, 由 settings.CACHE_BACKEND 决定)
+        registerCache(app)
         # set custom exceptions
         customExceptions(app)
         # set timer

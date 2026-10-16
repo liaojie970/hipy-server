@@ -62,7 +62,7 @@ class Settings(BaseSettings):
             return f"{self.SQLALCHEMY_ENGINE}://{user}@{self.SQL_HOST}:{self.SQL_PORT}/{self.SQL_DATABASE}{end_fix}"
 
     # redis
-    REDIS_HOST: str  # Redis Host地址
+    REDIS_HOST: str = "127.0.0.1"  # Redis Host地址
     REDIS_PASSWORD: Optional[str] = None  # Redis 密码
     REDIS_PWD: Optional[str] = None  # Redis 密码(别名, 与 REDIS_PASSWORD 等价, 便于兼容外部配置)
     REDIS_DB: int = 0  # 选择Redis数据库
@@ -124,6 +124,17 @@ class Settings(BaseSettings):
 
     # cachetools缓存生命周期(秒)
     CACHE_TTL: int = 3600
+
+    # 缓存后端: redis | memory
+    #   redis : 使用 Redis(默认, 支持多进程/多机)
+    #   memory: 使用进程内内存缓存(适合手机/个人单进程部署, 无需 Redis)
+    CACHE_BACKEND: str = "redis"
+    # 内存缓存最大键数量(超出时优先淘汰最早过期的键; <=0 表示不限制)
+    MEMORY_CACHE_MAX_ENTRIES: int = 10000
+    # 内存缓存后台清理过期键的间隔(秒)
+    MEMORY_CACHE_SWEEP_INTERVAL: int = 60
+    # Redis 后端启动探活失败时, 是否自动退化为内存缓存
+    CACHE_FALLBACK_TO_MEMORY: bool = True
 
     # 博客首页
     BLOG_URL: str = 'https://blog.csdn.net/qq_32394351'

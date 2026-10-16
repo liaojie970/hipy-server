@@ -151,7 +151,28 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
 
 四、Redis
   - Termux 包: redis 8.10.2
-  - 启动: redis-server --port 6379 --requirepass 123456 --daemonize yes --dir $HOME --logfile $HOME/redis.log --save ""
+  - 启动: redis-server --port 6379 --requirepass 123456 --daemonize yes --dir $HOME --logfile $HOME/redis.log --save "" --appendonly no --ignore-warnings ARM64-COW-BUG
+  - 坑(2026-10-16): ARM64 内核 COW 缺陷会让 Redis 在后台保存时主动退出
+    (日志 ~/redis.log 出现 "ARM64-COW-BUG" / "Redis will now exit to prevent data corruption")。
+    Redis 一挂 => 登录/验证码/字典/系统参数等依赖缓存的接口全部 500(前端表现: 能打开登录页但登录报内部错误),
+    后端日志: redis.exceptions.ConnectionError: Error 111 connecting to 127.0.0.1:6379。
+    修复: 启动参数加 --ignore-warnings ARM64-COW-BUG (并 --save "" --appendonly no 避免 fork)。
+  - 缓存后端抽象(2026-10-16 新增, 可选内存缓存, 不再强依赖 Redis):
+    * app/db/cache_base.py   统一接口 BaseCache(签名对齐 redis.asyncio: get/setex/scan/info...)
+    * app/db/cache_redis.py  RedisCache(默认)
+    * app/db/cache_memory.py MemoryCache(单进程内存: 惰性+后台清理, 超上限按最早过期淘汰)
+    * app/db/cache.py        工厂 registerCache(): 按 settings.CACHE_BACKEND 选择后端;
+                             CACHE_BACKEND=redis 且连接失败时, 若 CACHE_FALLBACK_TO_MEMORY=true 自动降级为内存
+    * configs/.env 新增:
+        CACHE_BACKEND=memory            # 手机改为内存缓存, 不再需要 redis
+        CACHE_FALLBACK_TO_MEMORY=true
+        MEMORY_CACHE_MAX_ENTRIES=10000
+        MEMORY_CACHE_SWEEP_INTERVAL=60
+    内存缓存注意点:
+      - 仅单进程有效(手机为单 worker, 无影响); 重启后端会清空缓存 => 需重新登录
+      - 多 worker / 定时任务子进程不共享缓存
+      - 后台监控页(/monitor/cache)仍可用, 但 Redis 版本/命令统计为合成值
+    start_all.sh 会读取 CACHE_BACKEND: memory 时跳过 redis 启动(保留 Redis 便于随时切回)
 
 五、代码补丁(相对原仓库)
   - 新增 app/utils/safe_eval.py (替代 numpy.safe_eval)
@@ -163,6 +184,9 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
     WEB_DOMAIN=http://192.168.1.113:8080 (仅邮件链接用), SERVER_PROXY=, REDIS_PASSWORD=123456
   - common/sys_schedule.py: APScheduler 的 ProcessPoolExecutor(10) -> (3),
     手机端省内存(启动进程数由 10 降到 3)
+  - 新增缓存层: app/db/cache_base.py / cache_memory.py / cache_redis.py,
+    改造 app/db/cache.py 为工厂(保留 registerRedis 别名);
+    common/deps.py 新增 get_cache(get_redis 保留为等价别名), core/server.py 改调用 registerCache
 
 六、前端 (IP 无关化后)
   - PC 用 nvm node16 构建: npm run build:prod  => dashboard/dist (7.5MB)
@@ -185,7 +209,7 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
   spa_server.py   静态服务器 + 反向代理(SPA 回退)
   start_backend.sh   启动后端(:5707)
   start_frontend.sh  启动前端(:8080)
-  start_all.sh       一键启动 redis+后端+前端
+  start_all.sh       一键启动(按 CACHE_BACKEND 决定是否启动 redis)+后端+前端
   stop_all.sh        一键停止
   backend.log / frontend.log / $HOME/redis.log  日志
 
