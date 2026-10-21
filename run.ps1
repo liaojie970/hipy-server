@@ -228,6 +228,11 @@ function Set-NodeCompat {
     try {
         $major = [int](((node -v) -replace '^v', '').Split('.')[0])
         if ($major -ge 17) { $env:NODE_OPTIONS = '--openssl-legacy-provider' }
+        # webpack4 dev server 内存占用高, 显式设置堆上限, 避免 "JavaScript heap out of memory"
+        $maxOldSpace = if ($env:HIPY_NODE_MAX_OLD_SPACE) { $env:HIPY_NODE_MAX_OLD_SPACE } else { '3072' }
+        if ($env:NODE_OPTIONS -notmatch 'max-old-space-size') {
+            $env:NODE_OPTIONS = ("$($env:NODE_OPTIONS) --max-old-space-size=$maxOldSpace").Trim()
+        }
     } catch {
         Write-Warn '未检测到 node，前端相关命令可能失败'
     }
