@@ -212,6 +212,12 @@ hipy-server/
 - **`sniffer/` 与 `tasks/`**：旁路能力。嗅探器负责抓取播放地址，`tasks/` 是可由定时任务调度的独立脚本。
 - **`utils/`**：无状态工具函数集合，任何层都可以引用。
 
+### 相关文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/hipy-vod-source-guide.md](docs/hipy-vod-source-guide.md) | 视频源管理使用说明：源规则 / 订阅配置 / 上游仓库的定位、数据流，以及 TVBox 该复制哪个配置地址 |
+
 ### 请求流转（便于定位问题）
 
 ```text

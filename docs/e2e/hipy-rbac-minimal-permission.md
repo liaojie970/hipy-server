@@ -27,10 +27,10 @@
 |---|---|
 | `curated:media:get` | 精选内容-媒体列表 |
 | `curated:provider:get` | 精选内容-站点 |
-| `vod:configs:get` | 配置中心 |
-| `vod:rules:get` | 源管理 |
-| `vod:houses:get` | 源仓库 |
-| `hiker:developer:get` | 开发者 |
+| `vod:configs:get` | 参数配置 |
+| `vod:rules:get` | 源规则 |
+| `vod:houses:get` | 上游仓库 |
+| `hiker:developer:get` | 开发者账号 |
 | （可选）`report:excel_generate:get` | 报表导出——若不需要普通用户导出则去掉 |
 
 ### 建议去掉（管理域读，10 个）
@@ -40,13 +40,13 @@
 | `perm:user:get` | 用户管理 |
 | `perm:role:get` | 角色管理 |
 | `perm:menu:get` | 菜单管理 |
-| `perm:label:get` | 权限标识管理 |
+| `perm:label:get` | 接口权限 |
 | `system:config-setting:get` | 系统配置 |
 | `system:dict:get` | 字典管理 |
 | `system:dict:detail:get` | 字典明细 |
 | `monitor:server:get` | 服务器监控 |
 | `monitor:cache:get` | 缓存监控 |
-| `monitor:pip:get` | 依赖管理 |
+| `monitor:pip:get` | 依赖包 |
 
 ### 需要你决定的（写标签，6 个）
 

@@ -19,6 +19,7 @@ from ..curd.curd_configs import curd_vod_configs as curd
 import os
 import io
 from pathlib import Path
+from core.constants import BASE_DIR
 from utils.httpapi import getGitContents, getJSFiles
 from apps.permission.models import Users
 from utils.web import getRealHost
@@ -30,7 +31,8 @@ api_url = '/houses'
 
 
 def read_records():
-    project_dir = os.getcwd()
+    # 用项目根目录(app/)定位文件, 避免从其他工作目录启动服务时读不到仓库数据(列表空白)
+    project_dir = BASE_DIR
     file_path = os.path.join(project_dir, 't4/files/json/drpy_rules.json')
     file_path = Path(file_path).as_posix()
     drpy_dir = os.path.join(project_dir, 't4/files/drpy_js/')
@@ -46,7 +48,7 @@ def read_records():
                 record['status'] = 0
 
     except Exception as e:
-        logger.info(f'读取本地drpy仓库源文件发送了错误:{e}')
+        logger.warning(f'读取本地drpy仓库源文件:{file_path} 发送了错误:{e}')
         records = []
     return records
 
@@ -140,7 +142,7 @@ def refreshRecords(*,
         try:
             js_files = getJSFiles(repo, path, token, proxy)
         except Exception as e:
-            return respErrorJson(error=error_code.ERROR_INTERNAL.set_msg(f'建议清空或更换配置中心的git令牌再试：{e}'))
+            return respErrorJson(error=error_code.ERROR_INTERNAL.set_msg(f'建议清空或更换「参数配置」里的git令牌再试：{e}'))
         for js_file in js_files:
             js_file['id'] = _id
             js_file['from'] = name

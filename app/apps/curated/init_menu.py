@@ -28,16 +28,28 @@ GRANT_ROLE_KEYS = ('admin', 'general', 'Operation')
 
 # (name, path, component, title, icon, order_num)
 CHILD_MENUS = [
-    ('CuratedProviders', 'providers', '/curated/providers/index', '站点管理', 'international', 1),
-    ('CuratedCategories', 'categories', '/curated/categories/index', '分类管理', 'tree', 2),
+    ('CuratedProviders', 'providers', '/curated/providers/index', '采集站点', 'international', 1),
+    ('CuratedCategories', 'categories', '/curated/categories/index', '内容分类', 'tree', 2),
     ('CuratedMedia', 'media', '/curated/media/index', '内容库', 'list', 3),
     ('CuratedImport', 'import', '/curated/import/index', '搜索入库', 'search', 4),
 ]
+
+# 顶级目录排序: 数据看板(前端固定路由)/海阔视界/视频源管理/精选内容/权限管理/系统管理/工具管理/系统监控
+CURATED_PARENT_ORDER = 3
 
 
 def _ensure_menu(db, *, name, path, component, title, icon, order_num, parent_id):
     exist = db.query(Menus).filter(Menus.name == name, Menus.is_deleted == 0).first()
     if exist:
+        # 已存在则以这里为准同步显示名/排序/组件, 避免历史库里的旧名称残留
+        changed = False
+        for field, value in (('title', title), ('order_num', order_num), ('icon', icon),
+                             ('component', component), ('path', path), ('parent_id', parent_id)):
+            if getattr(exist, field) != value:
+                setattr(exist, field, value)
+                changed = True
+        if changed:
+            db.commit()
         return exist.id
     menu = Menus(path=path, component=component, is_frame=False, hidden=False, status=0,
                  order_num=order_num, name=name, title=title, icon=icon, no_cache=True,
@@ -52,7 +64,7 @@ def init_curated_menus() -> None:
     db = SessionLocal()
     try:
         parent_id = _ensure_menu(db, name='Curated', path='/curated', component='',
-                                 title='精选内容', icon='education', order_num=7, parent_id=0)
+                                 title='精选内容', icon='education', order_num=CURATED_PARENT_ORDER, parent_id=0)
         menu_ids = [parent_id]
         for name, path, component, title, icon, order in CHILD_MENUS:
             menu_ids.append(_ensure_menu(db, name=name, path=path, component=component,
