@@ -17,7 +17,7 @@ from .deps import get_db
 from core.logger import logger
 from apps.monitor.models.job import Job
 from apps.monitor.curd.curd_job_log import curd_job_log
-from numpy import safe_eval
+from utils.safe_eval import safe_eval
 from tasks.active_sniffer import active_sniffer_after_run
 
 # 嗅探器激活任务: 连续失败达到上限后自我移除, 避免每 5 秒无限重试

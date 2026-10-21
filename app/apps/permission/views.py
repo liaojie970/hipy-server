@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 from fastapi import APIRouter, Request, Depends, Query, File, UploadFile
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
@@ -83,6 +82,7 @@ async def uploadImportData(*,
                            file: UploadFile,
                            u: Users = Depends(deps.user_perm(["perm:user:post"])),
                            ):
+    import pandas as pd
     updateSupport = request.query_params.get("updateSupport", "true") == 'true'
     print('updateSupport:', updateSupport)
     up_data = file.file.read()

@@ -21,6 +21,11 @@ class ScheduleCli(object):
     def __init__(self):
         # 对象 在 @app.on_event("startup") 中初始化
         self._schedule = None
+        # 进程池大小: 默认 10, 手机/小内存设备可配小一点以节省内存
+        try:
+            self.pool_size = max(1, int(getattr(settings, 'SCHEDULER_POOL_SIZE', 10) or 10))
+        except (TypeError, ValueError):
+            self.pool_size = 10
 
     def init_scheduler(self) -> None:
         """
@@ -34,8 +39,9 @@ class ScheduleCli(object):
             # },
             # 配置执行器
             "executors": {
-                # 使用进程池进行调度，最大进程数是10个
-                'default': ProcessPoolExecutor(10)
+                # 使用进程池进行调度, 最大进程数默认 10 个
+                # 手机/小内存设备可在 .env 里用 SCHEDULER_POOL_SIZE 调小(如 3)
+                'default': ProcessPoolExecutor(self.pool_size)
             },
             # 创建job时的默认参数
             "job_defaults": {

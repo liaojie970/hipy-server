@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     # Redis 后端启动探活失败时, 是否自动退化为内存缓存
     CACHE_FALLBACK_TO_MEMORY: bool = True
 
+    # 定时任务执行器进程池大小(默认 10)
+    #   手机/小内存设备建议设小(如 3), 避免多进程把内存拖死
+    SCHEDULER_POOL_SIZE: int = 10
+
     # 博客首页
     BLOG_URL: str = 'https://blog.csdn.net/qq_32394351'
 

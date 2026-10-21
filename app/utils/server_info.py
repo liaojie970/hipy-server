@@ -15,14 +15,40 @@ from utils.notes import get_start_info
 
 
 def get_server_info():
-    # 获取系统信息
-    cpu_percent = psutil.cpu_percent(interval=1)
-    cpu_freq = psutil.cpu_freq()
-    cpu_cores = psutil.cpu_count(logical=False)
-    memory = psutil.virtual_memory()
-    network_stats = psutil.net_io_counters()
-    netcard_stats = psutil.net_if_stats()
-    disk_stats = psutil.disk_partitions(all=True)
+    # 获取系统信息 (Android 上部分 /proc 读取受 SELinux 限制, 做容错)
+    try:
+        cpu_percent = psutil.cpu_percent(interval=1)
+    except Exception:
+        cpu_percent = 0.0
+    try:
+        cpu_freq = psutil.cpu_freq()
+    except Exception:
+        cpu_freq = None
+    try:
+        cpu_cores = psutil.cpu_count(logical=False)
+    except Exception:
+        cpu_cores = os.cpu_count()
+    try:
+        memory = psutil.virtual_memory()
+    except Exception:
+        class _Mem:
+            total = 0
+            used = 0
+            free = 0
+            percent = 0
+        memory = _Mem()
+    try:
+        network_stats = psutil.net_io_counters()
+    except Exception:
+        network_stats = None
+    try:
+        netcard_stats = psutil.net_if_stats()
+    except Exception:
+        netcard_stats = {}
+    try:
+        disk_stats = psutil.disk_partitions(all=True)
+    except Exception:
+        disk_stats = []
     start_info = get_start_info()
 
     # 获取Python版本
@@ -72,11 +98,17 @@ def get_server_info():
     # 获取计算机名称
     computer_name = os.environ.get("COMPUTERNAME")
     # 获取ip
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(('8.8.8.8', 80))
-    ip = s.getsockname()[0]
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = get_host_ip()
     # 获取开机时间
-    boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        boot_time = ""
     # 获取当前脚本文件的绝对路径
     current_path = os.path.abspath(__file__)
 
@@ -129,9 +161,9 @@ def get_server_info():
 
     netWork = {
         # 发送字节数
-        "bytes_sent": f"{network_stats.bytes_sent / (1024 ** 2):.2f} MB",
+        "bytes_sent": f"{network_stats.bytes_sent / (1024 ** 2):.2f} MB" if network_stats else "0.00 MB",
         # 接收字节数
-        "bytes_recv": f"{network_stats.bytes_recv / (1024 ** 2):.2f} MB",
+        "bytes_recv": f"{network_stats.bytes_recv / (1024 ** 2):.2f} MB" if network_stats else "0.00 MB",
     }
 
     sysFiles = [

@@ -7,7 +7,7 @@
 import os
 
 from fastapi import APIRouter, Depends, Query, Body, UploadFile
-from numpy import safe_eval
+from utils.safe_eval import safe_eval
 from sqlalchemy.orm import Session
 from common import deps, error_code
 from ..curd.curd_job import Job, curd_job as curd
