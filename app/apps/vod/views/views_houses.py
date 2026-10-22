@@ -20,7 +20,7 @@ import os
 import io
 from pathlib import Path
 from core.constants import BASE_DIR
-from utils.httpapi import getGitContents, getJSFiles
+from utils.httpapi import getGitContents, getJSFiles, stripGitProxy
 from apps.permission.models import Users
 from utils.web import getRealHost
 
@@ -51,6 +51,30 @@ def read_records():
         logger.warning(f'读取本地drpy仓库源文件:{file_path} 发送了错误:{e}')
         records = []
     return records
+
+
+def fetch_js_content(record, timeout=20):
+    """下载仓库列表里某个源的 js 内容。
+
+    依次尝试: 列表里的 url(可能带加速前缀) -> raw_url(直链) -> 去掉加速前缀后的直链。
+    这样即使参数配置里的 git 加速代理过期/被墙, 只要原始地址可达仍能导入。
+    """
+    url = str(record.get('url') or '').strip()
+    candidates = [url, str(record.get('raw_url') or '').strip(), stripGitProxy(url)]
+    tried = []
+    for candidate in candidates:
+        if not candidate or candidate in tried:
+            continue
+        tried.append(candidate)
+        try:
+            r = requests.get(candidate, timeout=timeout,
+                             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            if r.status_code == 200 and r.content:
+                return r.content
+            logger.warning(f'下载源{record.get("name")}失败:{candidate} -> HTTP {r.status_code}')
+        except Exception as e:
+            logger.warning(f'下载源{record.get("name")}异常:{candidate} -> {e}')
+    raise RuntimeError(f'没有可用地址, 已尝试: {tried}')
 
 
 @router.get(api_url + '/list', summary="查询仓库源列表")
@@ -94,11 +118,11 @@ def addRecordByID(*,
     records = read_records()
     records = [record for record in records if record['id'] in _ids]
     success = []
+    failed = []
     for record in records:
-        url = record['url']
         name = record['name']
         try:
-            content = requests.get(url, timeout=5).content
+            content = fetch_js_content(record)
             file = io.BytesIO(content)
             files = {"files": (name, file)}
             params = {
@@ -109,10 +133,16 @@ def addRecordByID(*,
             resp = r.json()
             if resp.get('code') == 0:
                 success.append(record)
+            else:
+                failed.append(name)
         except Exception as e:
+            failed.append(name)
             logger.info(f'导入源{name}发生了错误:{e}')
 
     cost = get_interval(t1)
+    if failed and not success:
+        return respErrorJson(error=error_code.ERROR_INTERNAL.set_msg(
+            f'导入失败, 请到「参数配置」检查上游仓库地址/git加速代理, 或在「上游仓库」重新获取仓库数据: {",".join(failed[:5])}'))
     return respSuccessJson(data=f'导入成功{len(success)}/{len(records)}个源,耗时{cost}ms')
 
 
@@ -130,11 +160,12 @@ def refreshRecords(*,
     houses = [h for h in houses if '|' in h['value']]
     records = []
 
-    project_dir = os.getcwd()
+    project_dir = BASE_DIR
     file_path = os.path.join(project_dir, 't4/files/json/drpy_rules.json')
     file_path = Path(file_path).as_posix()
 
     _id = 1
+    errors = []
     for house in houses:
         name = house['name']
         repo = house['value'].split('|')[0]
@@ -142,7 +173,10 @@ def refreshRecords(*,
         try:
             js_files = getJSFiles(repo, path, token, proxy)
         except Exception as e:
-            return respErrorJson(error=error_code.ERROR_INTERNAL.set_msg(f'建议清空或更换「参数配置」里的git令牌再试：{e}'))
+            # 单个仓库失败不影响其他仓库, 但至少得有一个成功才覆盖本地清单
+            logger.warning(f'获取上游仓库{name}({repo}|{path})失败:{e}')
+            errors.append(f'{name}({repo}|{path}): {e}')
+            continue
         for js_file in js_files:
             js_file['id'] = _id
             js_file['from'] = name
@@ -150,6 +184,14 @@ def refreshRecords(*,
             records.append(js_file)
             _id += 1
 
+    if not records:
+        return respErrorJson(error=error_code.ERROR_INTERNAL.set_msg(
+            '全部仓库获取失败, 请到「参数配置」检查仓库地址(github 写 owner/repo, gitee 写 gitee:owner/repo)、'
+            f'git令牌和加速代理: {"; ".join(errors) or "未配置仓库"}'))
+
     with open(file_path, mode='w+', encoding='utf-8') as f:
         f.write(ujson.dumps(records, ensure_ascii=False, indent=4))
-    return respSuccessJson(data={}, msg='刷新成功')
+    msg = '刷新成功'
+    if errors:
+        msg = f'刷新完成, {len(errors)}/{len(houses)}个仓库获取失败: {"; ".join(errors[:3])}'
+    return respSuccessJson(data={}, msg=msg)

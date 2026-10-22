@@ -12,7 +12,7 @@ print(pm.__version__)
 initGlobalThis(pm)
 
 if __name__ == '__main__':
-    test_rule_url = 'https://ghproxy.liuzhicong.com/https://github.com/hjdhnx/dr_py/raw/main/js/996%E5%BD%B1%E8%A7%86.js'
+    test_rule_url = 'https://gitee.com/liaoj/dr_py/raw/main/js/996%E5%BD%B1%E8%A7%86.js'
 
     drpy = js_require('../files/drpy3_libs/drpy3.js')
     print(drpy)

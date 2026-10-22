@@ -216,7 +216,7 @@ hipy-server/
 
 | 文档 | 内容 |
 | --- | --- |
-| [docs/hipy-vod-source-guide.md](docs/hipy-vod-source-guide.md) | 视频源管理使用说明：源规则 / 订阅配置 / 上游仓库的定位、数据流，以及 TVBox 该复制哪个配置地址 |
+| [docs/hipy-vod-source-guide.md](docs/hipy-vod-source-guide.md) | 视频源管理使用说明：源规则 / 订阅配置 / 上游仓库的定位、数据流，TVBox 该复制哪个配置地址，以及订阅正则到底在过滤哪份数据（实现细节） |
 
 ### 请求流转（便于定位问题）
 
