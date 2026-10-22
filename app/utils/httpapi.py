@@ -24,13 +24,13 @@ GIT_KIND_GITEE = 'gitee'
 # 「参数配置」里 vod_drpy_houseN 的写法(格式: 仓库|目录, 也兼容不带目录):
 #   hjdhnx/dr_py                            -> github(默认)
 #   github:hjdhnx/dr_py / gh:hjdhnx/dr_py   -> github
-#   gitee:liaoj/dr_py / gt:liaoj/dr_py      -> gitee
+#   gitee:owner/repo / gt:owner/repo        -> gitee
 #   https://github.com/hjdhnx/dr_py.git     -> 按域名自动识别
-#   https://gitee.com/liaoj/dr_py           -> 按域名自动识别(可带 /blob/main/js 之类的浏览链接尾巴)
+#   https://gitee.com/owner/repo            -> 按域名自动识别(可带 /blob/main/js 之类的浏览链接尾巴)
 GIT_REPO_PREFIX_RE = re.compile(r'^(gitee|gt|github|gh)[:@]', re.I)
 GIT_REPO_TREE_RE = re.compile(r'/(?:tree|blob|raw)/[^/]+')
 GIT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36'
-# 加速前缀(如 https://ghproxy.net/) + 原始地址 组成的长链接, 用于回退直链
+# 加速前缀(如 https://gh-proxy.com/) + 原始地址 组成的长链接, 用于回退直链
 GIT_PROXY_PREFIX_RE = re.compile(r'^https?://[^/]+/(?=https?://)')
 
 
@@ -205,6 +205,10 @@ def _getGiteeContents(repo, path, token=''):
         res = r.json()
     except Exception:
         raise RuntimeError(f'gitee接口返回了无法解析的内容, HTTP {r.status_code}: {str(r.text)[:200]}')
+    # gitee 对已下架/被内容审核屏蔽的仓库返回 violation_name 占位文件(HTTP 200),
+    # 不报错但内容不可用, 这里显式识别, 避免列表里出现 violation_name.js 或空结果.
+    if isinstance(res, list) and any(str(item.get('name') or '').startswith('violation') for item in res):
+        raise RuntimeError(f'gitee 仓库 {repo} 已被下架/屏蔽(返回 violation 占位), 请换一个仓库或改用 github 源')
     return res
 
 
@@ -212,7 +216,7 @@ def getGitContents(repo, path, token):
     """获取仓库目录内容。repo 支持 github / gitee 两种来源(见上面的格式说明)。"""
     kind, repo_path = parseGitRepo(repo)
     if not repo_path or '/' not in repo_path:
-        raise RuntimeError(f'仓库地址不合法:{repo}, 正确格式如 hjdhnx/dr_py 或 gitee:liaoj/dr_py')
+        raise RuntimeError(f'仓库地址不合法:{repo}, 正确格式如 hjdhnx/dr_py 或 gitee:owner/repo')
     path = str(path or '').strip().strip('/')
     if kind == GIT_KIND_GITEE:
         return _getGiteeContents(repo_path, path, token)

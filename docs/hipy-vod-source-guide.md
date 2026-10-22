@@ -74,15 +74,18 @@ TVBox / 影视 App 的「配置地址」
 |---|---|---|
 | `hjdhnx/dr_py` | github（默认） | `vod_git_proxy` + `raw.githubusercontent.com/...`，代理留空则直连 |
 | `github:hjdhnx/dr_py` / `gh:hjdhnx/dr_py` | github | 同上 |
-| `gitee:liaoj/dr_py` / `gt:liaoj/dr_py` | gitee | `https://gitee.com/liaoj/dr_py/raw/<分支>/...`（**不拼** github 加速前缀） |
-| `https://gitee.com/liaoj/dr_py.git` | 按域名识别 | 同上 |
+| `gitee:owner/repo` / `gt:owner/repo` | gitee | `https://gitee.com/owner/repo/raw/<分支>/...`（**不拼** github 加速前缀） |
+| `https://gitee.com/owner/repo.git` | 按域名识别 | 同上 |
 | `https://github.com/hjdhnx/dr_py` | 按域名识别 | 同 github |
 
 要点：
 
 - **gitee 仓库不需要加速前缀**，`vod_git_proxy` 只作用于 github 的下载地址。
-- 原来的默认值 `hjdhnx/dr_py|js` + 加速前缀 `https://ghproxy.liuzhicong.com/` 已失效（链接打不开）。仓库已同步到 <https://gitee.com/liaoj/dr_py>，老环境执行一次 `cd app && python db/migrate_git_house.py` 即可改成 `gitee:liaoj/dr_py|js` 并清空失效代理，然后到「上游仓库」点一次「获取仓库数据」刷新链接。
-- 「导入源」下载失败时会自动回退：先用列表里的 `url`，再试 `raw_url`（不带加速前缀的原始地址），最后试去掉前缀后的直链，三者都不行才报错。
+- **默认三个仓库**（实测可用）：`hjdhnx/dr_py|js`、`qist/tvbox|js`、`gaotianliuyun/gao|js`。
+- **`vod_git_proxy` 默认 `https://gh-proxy.com/`**：国内直连 `raw.githubusercontent.com` 基本不通（手机实测超时），必须靠加速前缀下载；`https://ghproxy.net/` 亦可（较慢）。调到打不开时换一个前缀即可，`api.github.com`（列表接口）本身通常可达。
+- 历史坑备查：旧的默认前缀 `https://ghproxy.liuzhicong.com/` 已失效；gitee 镜像仓库常常被下架（HTTP 451 + `violation_name` 占位），所以默认值已回退到 github 仓库。
+- 老环境升级后执行一次 `cd app && python db/migrate_git_house.py`（幂等，只改仍是旧默认值的项），再到「上游仓库」点一次「获取仓库数据」刷新链接。
+- 「导入源」下载失败时会自动回退：先用列表里的 `url`（带加速前缀），再试 `raw_url`（原始地址），最后试去掉前缀后的直链，三者都不行才报错。
 
 ## 三、要配置"其他源"，该复制哪个 URL
 
@@ -128,7 +131,7 @@ http://<服务器IP>:<端口>/config/1?sub=<订阅码>    # 1 = T3 模式
 
 ### 场景 1：从上游仓库新增源
 
-1. **参数配置**里确认仓库地址可用（`vod_drpy_house1~3`，格式 `仓库|目录`：github 写 `owner/repo`，gitee 写 `gitee:owner/repo`，如 `gitee:liaoj/dr_py|js`；必要时填 `vod_git_token` / `vod_git_proxy`）。
+1. **参数配置**里确认仓库地址可用（`vod_drpy_house1~3`，格式 `仓库|目录`，默认 `hjdhnx/dr_py|js`、`qist/tvbox|js`、`gaotianliuyun/gao|js`；github 写 `owner/repo`，gitee 写 `gitee:owner/repo`；`vod_git_proxy` 默认 `https://gh-proxy.com/`，必要时填 `vod_git_token`）。
 2. **上游仓库** →「获取仓库数据」→ 搜索目标源 → 勾选 →「导入源」（提示"导入成功 N/N 个源"）。
 3. **源规则** →「刷新源」→ 找到该源，确认「是否显示」为开、`ext` 等参数正确。
 4. **订阅配置** → 修改目标订阅，让 `reg` 能匹配到它（或新建一条）→ 复制 T4 配置地址。
@@ -165,7 +168,8 @@ http://<服务器IP>:<端口>/config/1?sub=<订阅码>    # 1 = T3 模式
 | `此订阅码【xxx】已过期` | `due_time` 早于当前时间 | 修改到期时间或清空 |
 | 配置能打开但**没有源 / 少了源** | 源未启用、`is_exist=0`、或订阅 `reg` 不匹配 | 源规则查「是否显示」；订阅配置核对 `reg`/`mode` |
 | 上游仓库「获取仓库数据」失败 | GitHub API 限流或被墙 / Gitee 接口限流 | github 源：参数配置里清空/更换 `vod_git_token`；gitee 源：稍后重试（公开仓库无需令牌） |
-| 上游仓库「链接」打不开 / 「导入源」全部失败 | `vod_git_proxy` 加速前缀已失效，或 raw.githubusercontent.com 被墙 | 换一个可用的加速前缀，或把仓库改成 gitee：`vod_drpy_house1` 填 `gitee:liaoj/dr_py|js`，再点「获取仓库数据」 |
+| 上游仓库「链接」打不开 / 「导入源」全部失败 | `vod_git_proxy` 加速前缀已失效，或直连 `raw.githubusercontent.com` 被墙 | 换一个可用的加速前缀（默认 `https://gh-proxy.com/`，备选 `https://ghproxy.net/`），再点「获取仓库数据」刷新链接 |
+| 上游仓库「获取仓库数据」报 `violation` / HTTP 451 | gitee 仓库已被下架或屏蔽（常见于镜像仓库） | 把该行换成 github 仓库（`owner/repo`），或删掉这个仓库 |
 
 ## 六、自检命令
 

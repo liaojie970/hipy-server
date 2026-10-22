@@ -1508,9 +1508,9 @@ CREATE TABLE `t_vod_configs`  (
 -- ----------------------------
 -- Records of t_vod_configs
 -- ----------------------------
-INSERT INTO `t_vod_configs` VALUES (14, '2024-02-19 13:52:29', 1, '2024-05-29 13:11:46', 1, 0, 'drpy源仓库1', 'vod_drpy_house1', 'gitee:liaoj/dr_py|js', 'str', 'drpy源仓库，格式 repo|path。github 写 owner/repo，gitee 写 gitee:owner/repo，也可直接填仓库网页地址', 1, 14);
-INSERT INTO `t_vod_configs` VALUES (15, '2024-02-19 13:52:29', 1, '2024-05-29 13:11:46', 1, 0, 'drpy源仓库2', 'vod_drpy_house2', 'heroaku/TVboxo|Js', 'str', 'drpy源的github仓库。repo|path', 1, 15);
-INSERT INTO `t_vod_configs` VALUES (16, '2024-03-10 11:05:05', 1, '2024-05-29 13:11:46', 1, 0, 'drpy源仓库3', 'vod_drpy_house3', 'gaotianliuyun/gao|js', 'str', 'drpy源的github仓库(高天流云)。repo|path', 1, 16);
+INSERT INTO `t_vod_configs` VALUES (14, '2024-02-19 13:52:29', 1, '2024-05-29 13:11:46', 1, 0, 'drpy源仓库1', 'vod_drpy_house1', 'hjdhnx/dr_py|js', 'str', 'drpy源仓库，格式 repo|path。github 写 owner/repo，gitee 写 gitee:owner/repo，也可直接填仓库网页地址', 1, 14);
+INSERT INTO `t_vod_configs` VALUES (15, '2024-02-19 13:52:29', 1, '2024-05-29 13:11:46', 1, 0, 'drpy源仓库2', 'vod_drpy_house2', 'qist/tvbox|js', 'str', 'drpy源仓库，格式 repo|path。github 写 owner/repo，gitee 写 gitee:owner/repo', 1, 15);
+INSERT INTO `t_vod_configs` VALUES (16, '2024-03-10 11:05:05', 1, '2024-05-29 13:11:46', 1, 0, 'drpy源仓库3', 'vod_drpy_house3', 'gaotianliuyun/gao|js', 'str', 'drpy源仓库(高天流云)，格式 repo|path。github 写 owner/repo，gitee 写 gitee:owner/repo', 1, 16);
 INSERT INTO `t_vod_configs` VALUES (4, '2024-02-01 13:15:53', 1, '2024-05-29 13:11:56', 1, 0, '自定义配置模板文件', 'vod_config_custom', 'txt/pg.conf', 'file', 'hipy的自动生成在线配置将使用此文件作为个性化配置', 1, 4);
 INSERT INTO `t_vod_configs` VALUES (1, '2024-02-01 13:15:53', 1, '2024-05-29 13:11:45', 1, 0, 'drpy接口文件', 'vod_drpy_api', 'drpy_libs/drpy2.min.js', 'file', '自动生成配置中的drpy的api将会使用此文件', 1, 1);
 INSERT INTO `t_vod_configs` VALUES (2, '2024-02-01 13:15:53', 1, '2024-05-29 13:11:45', 1, 0, '接口密码', 'vod_passwd', 'dzyyds', 'str', 'hipy的t4接口将使用此密码作为参数验证', 1, 2);
@@ -1522,7 +1522,7 @@ INSERT INTO `t_vod_configs` VALUES (11, '2024-02-04 14:21:12', 1, '2024-05-29 13
 INSERT INTO `t_vod_configs` VALUES (7, '2024-02-01 13:15:53', 1, '2024-05-29 13:11:46', 1, 0, '自定义挂载jar', 'vod_custom_jar', 'jar/custom_spider_dz1201.jar', 'file', 'hipy的自定义外挂jar文件,用于直播解析和视频解析轮询', 1, 7);
 INSERT INTO `t_vod_configs` VALUES (8, '2024-02-01 13:15:53', 1, '2024-05-29 13:11:46', 1, 0, '自定义壁纸', 'vod_wall_paper', 'https://tuapi.eees.cc/api.php?category=fengjing&type=302', 'url', 'hipy的自定义壁纸，可以是文件或着链接', 1, 8);
 INSERT INTO `t_vod_configs` VALUES (9, '2024-02-02 17:36:29', 1, '2024-05-29 13:11:46', 1, 0, '环境变量', 'vod_hipy_env', '{\"ali_token\":\"682c41720d6d4c9d8ded00bcdd712870\",\"bili_cookie\":\"SESSDATA=93f1b89c%2C1685503124%2C760e0%2Ac1; bili_jct=5e0a1e65979f4d9f48fd9c158362b573; DedeUserID=253592508\",\"douban\":\"264291961\",\"vmid\":\"253592508\",\"test_env\":\"测试环境变量\",\"appkey\":\"1d8b6e7d45233436\",\"access_key\":\"3841bf63f94a8e8d0181e59470167aa1CjCup6x6MSEv8rLctbAuWLQs0ra3Ej09EJhjMBrgAsaVt3ALYteyfxjvizVqWrnlR0ESVmlucDVmcHBycjZDVk9KMDFucTRmMEcwMUlHWWhQZkVvUnRqeTdMWTNjU2phSkdpRkZFTGJPQUZ6NEVmcVVMUUx2WjZBTl8wb0lsTjhLbmp6SHVxRjdRIIEC\"}', 'json', 'hipy的环境变量，json数据', 1, 9);
-INSERT INTO `t_vod_configs` VALUES (12, '2024-02-19 11:22:58', 1, '2024-05-29 13:11:46', 1, 0, 'git访问代理', 'vod_git_proxy', '', 'url', 'github 下载加速前缀，如 https://ghproxy.net/ ；留空=直连。github 的源会被拼成「前缀+raw地址」，gitee 仓库不需要也不使用此代理', 1, 12);
+INSERT INTO `t_vod_configs` VALUES (12, '2024-02-19 11:22:58', 1, '2024-05-29 13:11:46', 1, 0, 'git访问代理', 'vod_git_proxy', 'https://gh-proxy.com/', 'url', 'github 下载加速前缀，可换成 https://ghproxy.net/ 等；留空=直连（国内多数网络下直连 raw.githubusercontent.com 不通）。github 的源会被拼成「前缀+raw地址」，gitee 仓库不需要也不使用此代理', 1, 12);
 INSERT INTO `t_vod_configs` VALUES (13, '2024-02-19 11:22:58', 1, '2024-05-29 13:11:46', 1, 0, 'git访问令牌', 'vod_git_token', ' ', 'str', '从 http://github.com/settings/tokens 获取的token，可以操作api以及破解git访问次数限制每小时60次提升至5000次', 1, 13);
 
 -- ----------------------------

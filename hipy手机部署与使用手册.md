@@ -109,6 +109,9 @@ http://<服务器IP>:<端口>/config/1?sub=<订阅码>    # 1=T3
 1. **上游仓库不产生源**：点「获取仓库数据」只是刷新清单，点「导入源」才会下载文件；磁盘有文件也要回源规则点一次「刷新源」才算入库。
 2. **订阅配置的正则过滤的是「源规则产出的配置」里的 `sites`（按显示名匹配）**，不是上游仓库清单；`mode=0` 只保留命中项，`mode=1` 反向排除。
 
+> 如果「获取仓库数据」或「导入源」报错，先看「参数配置 → git访问代理」是否为空：
+> 国内直连 `raw.githubusercontent.com` 多数不通，默认值 `https://gh-proxy.com/` 不要清空（换不动时换 `https://ghproxy.net/`）。
+
 > 完整说明（含过滤时机、`reg`/`mode` 留空的坑、报错对照表、自检命令）见仓库内
 > [docs/hipy-vod-source-guide.md](docs/hipy-vod-source-guide.md)。
 

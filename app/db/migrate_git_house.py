@@ -5,16 +5,19 @@
 
 背景:
     「上游仓库」列表里的「链接」= 参数配置 vod_git_proxy(加速前缀) + github raw 地址。
-    默认的加速前缀 https://ghproxy.liuzhicong.com/ 已失效, 列表里的链接全部打不开;
-    dr_py 仓库已同步到 gitee(https://gitee.com/liaoj/dr_py), gitee 直链不需要加速前缀。
+    ① 默认加速前缀 https://ghproxy.liuzhicong.com/ 已失效 -> 换成实测可用的 https://gh-proxy.com/
+    ② 默认仓库 heroaku/TVboxo 已 404 -> 换成 qist/tvbox|js
+    ③ 中间的过渡默认值 gitee:liaoj/dr_py|js 所在的 gitee 仓库已被下架(HTTP 451/violation)
+       -> 回退到原 github 仓库 hjdhnx/dr_py|js(靠加速前缀下载)
 
 用法:
     cd app && python db/migrate_git_house.py                # 使用应用配置中的数据库
     cd app && python db/migrate_git_house.py <db文件路径>    # sqlite: 指定 .db 文件路径
 
 动作(只在仍是老默认值时才改, 用户自己改过的不动):
-    1) vod_drpy_house1 = 'hjdhnx/dr_py|js' -> 'gitee:liaoj/dr_py|js'
-    2) vod_git_proxy 为已失效的 liuzhicong 加速前缀 -> 清空(直连)
+    1) vod_drpy_house1 = 'gitee:liaoj/dr_py|js' -> 'hjdhnx/dr_py|js'
+    2) vod_drpy_house2 = 'heroaku/TVboxo|Js'    -> 'qist/tvbox|js'
+    3) vod_git_proxy  为已失效的 liuzhicong 前缀 或 空(过渡默认值) -> 'https://gh-proxy.com/'
 
 改完到「上游仓库」点一次「获取仓库数据」即可刷新列表里的链接。
 可重复执行。
@@ -29,11 +32,16 @@ if APP_DIR not in sys.path:
 from core import constants  # noqa: E402
 from core.config import settings  # noqa: E402
 
+DEFAULT_GIT_PROXY = 'https://gh-proxy.com/'
+
 # (key, 老值, 新值)
 MIGRATIONS = [
-    ('vod_drpy_house1', 'hjdhnx/dr_py|js', 'gitee:liaoj/dr_py|js'),
-    ('vod_git_proxy', 'https://ghproxy.liuzhicong.com/', ''),
-    ('vod_git_proxy', 'https://n.liuzhicong.com/', ''),
+    ('vod_drpy_house1', 'gitee:liaoj/dr_py|js', 'hjdhnx/dr_py|js'),
+    ('vod_drpy_house2', 'heroaku/TVboxo|Js', 'qist/tvbox|js'),
+    ('vod_git_proxy', 'https://ghproxy.liuzhicong.com/', DEFAULT_GIT_PROXY),
+    ('vod_git_proxy', 'https://n.liuzhicong.com/', DEFAULT_GIT_PROXY),
+    # 空值 = 曾经迁移到「直连」的过渡默认值; 国内直连 raw.githubusercontent.com 基本不通
+    ('vod_git_proxy', '', DEFAULT_GIT_PROXY),
 ]
 
 
