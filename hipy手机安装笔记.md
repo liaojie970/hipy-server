@@ -396,3 +396,55 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
         后端回环代理自动回退, 双保险, 避免再次出现「电脑代理带到手机」。
   注: 「新增站点」与「修改站点」是同一个 el-dialog(共享模板), 开关两处均生效。
 ================================================================
+
+================================================================
+七、上游仓库(gitee 支持 + 加速前缀)同步到手机   2026-10-22
+================================================================
+背景: 默认 vod_git_proxy=https://ghproxy.liuzhicong.com/ 已失效, 上游仓库列表链接全打不开,
+      「导入源」全部失败。改动见仓库提交 d7bd59b / dd23429。
+
+一、同步方式(手机 app 不是 git 仓库, 直接覆盖文件)
+  PC 侧: git archive HEAD <改动文件> | gzip | ssh hipy 'cd ~/hipy && tar xzf -'
+  备份 : ~/hipy/backups/deploy_<ts>/before.tar.gz (覆盖前先打包)
+  注意 : Termux 没有 /tmp, 临时文件要写 $PREFIX/tmp
+
+二、本次同步内容
+  app/utils/httpapi.py                       # gitee/github 双来源 + 3 级下载回退
+  app/apps/vod/views/views_houses.py         # 单仓库失败不中断 / BASE_DIR / 导入失败提示
+  app/apps/vod/views/views_configs.py        # 默认仓库与代理
+  app/db/migrate_git_house.py                # 幂等迁移(新增)
+  app/t4/files/json/drpy_rules.json          # 重新生成的上游清单(709 个源)
+  app/db/init_data/vod_configs.csv, hipy_*.sql
+  docs/hipy-vod-source-guide.md, 使用手册.md(手机端文件名)
+
+三、实测结论(手机侧, 很有用)
+  - api.github.com           200  (列表接口可达, 无需代理)
+  - raw.githubusercontent.com 超时/不通  => 必须靠加速前缀下载
+  - https://gh-proxy.com/    200, 0.9s   => 选为默认 vod_git_proxy
+  - https://ghproxy.net/     200, 2.8s   => 备选
+  - gitee 镜像 liaoj/dr_py   已下架: api 返回 violation_name 占位, raw 返回 HTTP 451
+      => 默认仓库回退 github; httpapi 现在遇到 violation 占位会直接报错(不再静默出空列表)
+  - heroaku/TVboxo 已 404    => house2 换成 qist/tvbox|js
+  - 默认三个仓库: hjdhnx/dr_py|js(188) / qist/tvbox|js(270) / gaotianliuyun/gao|js(251)
+
+四、手机侧执行与验证
+  1) DB 迁移: cd ~/hipy/app && python db/migrate_git_house.py
+       vod_drpy_house1  gitee:liaoj/dr_py|js -> hjdhnx/dr_py|js
+       vod_drpy_house2  heroaku/TVboxo|Js    -> qist/tvbox|js
+       vod_git_proxy    (空)                 -> https://gh-proxy.com/
+  2) 重启后端: pkill -f "python main.py"; cd ~/hipy && setsid nohup bash start_backend.sh > backend.log.new 2>&1 &
+       (直接 ssh 里跑 `bash start_all.sh` 会被 SIGHUP 带走, 要用 setsid nohup)
+  3) 自检(houses 接口需要请求头 `token: <jwt>`, 不是 Authorization: Bearer):
+       POST /api/v1/user/login   {"user":"admin","password":"<md5(密码)>"}  -> data.token
+       POST /api/v1/vods/houses/refresh  -> {"code":0,"msg":"刷新成功"}
+       GET  /api/v1/vods/houses/list     -> 709 条, url 形如
+            https://gh-proxy.com/https://raw.githubusercontent.com/<owner>/<repo>/<branch>/js/xxx.js
+       fetch_js_content(record) 逐个下载: 188/270/251 三个仓库的文件均 200 可下载
+       /config/0?sub=dzyyds -> 200, 457 个 sites
+  4) 内存缓存后端: 重启后需重新登录(前端表现: 登录页需再输一次密码)
+
+五、请求头差异(排查时容易踩)
+  前端请求 token 放在自定义头 `token` 里(common/deps.check_jwt_token 的 Header(None));
+  用 curl 手工调接口时写 Authorization: Bearer 会一直返回
+  {"code":5004,"msg":"未登录或登录过期"}。
+================================================================
