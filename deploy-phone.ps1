@@ -5,7 +5,7 @@
 .DESCRIPTION
     默认动作:
       1) 自动定位手机(优先 ~/.ssh/config 里的 hipy, 其次 adb, 最后局域网扫描)
-      2) 前端源码有更新时用 Node 16 自动重新 build (可用 -SkipBuild 跳过)
+      2) 前端源码有更新时自动重新 build (可用 -SkipBuild 跳过)
       3) 备份手机上的 app/ 与 dist/
       4) 上传后端 app/ (自动排除 .env、数据库、日志、Windows wheel)
       5) 上传前端 dist/ 与 phone/spa_server.py
@@ -18,11 +18,16 @@
     .\deploy-phone.ps1 -PhoneIp 192.168.1.101 -SkipFrontend
     .\deploy-phone.ps1 -SkipBuild -SkipRestart
     .\deploy-phone.ps1 -ForceBuild
+    .\deploy-phone.ps1 -NodeDir "D:\ProgramFiles\Nvm\v16.20.2"
 
 .NOTES
     - 需要 Windows OpenSSH (ssh/scp) 和 tar
     - 手机 SSH: u0_a212@<ip>:8022, 密钥 ~/.ssh/id_ed25519_hipy
-    - 前端 build 需要 nvm + Node 16.20.2; 脚本会自动执行 nvm use 16.20.2
+    - 前端 build 默认用当前 PATH 里的 Node (含 Node 22): vue-cli 3 / webpack 4 在
+      Node >= 17 下需要 `--openssl-legacy-provider`, 脚本会自动加上。
+      绝不动 nvm 的全局软链, 同一台机器上的其它 Node 程序(如 pi agent)不受影响。
+    - 若某个依赖确实只认 Node 16, 用 -NodeDir 指定该版本目录, 脚本只把它
+      临时前置到本次构建的 PATH, 构建结束后恢复。
 #>
 [CmdletBinding()]
 param(
@@ -31,6 +36,7 @@ param(
     [int]$SshPort = 8022,
     [string]$IdentityFile = "$env:USERPROFILE\.ssh\id_ed25519_hipy",
     [string]$FrontendDir = "",
+    [string]$NodeDir = "",
     [switch]$SkipFrontend,
     [switch]$SkipBuild,
     [switch]$ForceBuild,
@@ -214,27 +220,41 @@ function Invoke-FrontendBuild {
     }
     Push-Location -LiteralPath $FrontendDir
     $oldNodeOptions = $env:NODE_OPTIONS
+    $oldPath = $env:PATH
     try {
-        $nvm = Get-Command nvm -ErrorAction SilentlyContinue
-        if ($nvm) {
-            Write-Info "nvm use 16.20.2"
-            & $nvm.Source use 16.20.2 | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "nvm use 16.20.2 失败" }
+        # 只用当前进程的 PATH 选择 Node, 不改 nvm 的全局软链
+        # (nvm use 会把 D:\ProgramFiles\nodejs 指向目标版本, 影响所有新进程)
+        if ($NodeDir) {
+            $nodeExe = Join-Path $NodeDir "node.exe"
+            if (-not (Test-Path -LiteralPath $nodeExe)) {
+                throw "-NodeDir 下找不到 node.exe: $NodeDir"
+            }
+            $env:PATH = "$NodeDir;$env:PATH"
+            Write-Info "使用指定 Node 目录: $NodeDir"
         }
         $nodeVersion = (& node -v 2>$null | Out-String).Trim()
-        if ($nodeVersion -notmatch '^v16\.') {
-            throw "当前 Node 是 $nodeVersion, 需要 16.x。请先执行: nvm use 16.20.2"
-        }
-        Write-Info "Node $nodeVersion, 开始 npm run build:prod (可能需要 1-2 分钟)..."
-        $env:NODE_OPTIONS = "--max-old-space-size=6144"
-        & npm run build:prod
-        if ($LASTEXITCODE -ne 0) { throw "npm run build:prod 失败" }
+        if (-not $nodeVersion) { throw "找不到 node, 请确认 Node 已安装并在 PATH 中" }
+        $nodeMajor = 0
+        if ($nodeVersion -match '^v(\d+)') { $nodeMajor = [int]$Matches[1] }
+
+        # vue-cli 3 / webpack 4 依赖 md4, Node >= 17 的 OpenSSL 3 不再提供, 必须开 legacy provider
+        $nodeOptions = @("--max-old-space-size=6144")
+        if ($nodeMajor -ge 17) { $nodeOptions += "--openssl-legacy-provider" }
+        $env:NODE_OPTIONS = ($nodeOptions -join " ")
+
+        Write-Info "Node $nodeVersion, NODE_OPTIONS='$env:NODE_OPTIONS', 开始 npm run build:prod (可能需要 1-2 分钟)..."
+        # 注意: 不要写 `& npm ...`。PowerShell 会优先命中 npm.ps1 这个 shim,
+        # 它用 $MyInvocation 重建参数, 遇到调用运算符 `&` 会把 "npm run ..." 截成
+        # "pm run ...", 报 `Unknown command: "pm"`。走 cmd.exe 命中 npm.cmd 最稳。
+        & $env:ComSpec /c "npm run build:prod"
+        if ($LASTEXITCODE -ne 0) { throw "npm run build:prod 失败 (exit=$LASTEXITCODE)" }
     } finally {
         if ($null -eq $oldNodeOptions) {
             Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue
         } else {
             $env:NODE_OPTIONS = $oldNodeOptions
         }
+        $env:PATH = $oldPath
         Pop-Location
     }
     if (-not (Test-Path -LiteralPath (Join-Path $FrontendDir "dist\index.html"))) {
@@ -268,7 +288,7 @@ try {
     if (-not $SkipFrontend) {
         $needBuild = $ForceBuild -or ((-not $SkipBuild) -and (Test-DistStale))
         if ($needBuild) {
-            Write-Step "构建前端 (Node 16)"
+            Write-Step "构建前端"
             Invoke-FrontendBuild
             Write-Ok "前端构建完成"
         } elseif ($SkipBuild) {

@@ -465,8 +465,14 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
 
 脚本做的事:
   1) 定位手机: ~/.ssh/config 的 hipy -> adb -> 复用 ~/.ssh/ssh-hipy.ps1 扫 8022
-  2) 前端: 源码 mtime 比 dist 新时自动 nvm use 16.20.2 + build:prod
-     (NODE_OPTIONS=--max-old-space-size=6144, 解决 node16 OOM)
+  2) 前端: 源码 mtime 比 dist 新时自动 build:prod
+     - 用当前 PATH 里的 Node, 不再执行 nvm use (nvm use 会改全局软链, 把同机
+       其它 Node 程序如 pi agent 一起切到 16, 导致它们起不来)
+     - Node >= 17 自动加 --openssl-legacy-provider (vue-cli 3 / webpack 4 依赖 md4)
+     - NODE_OPTIONS 另加 --max-old-space-size=6144 防 OOM
+     - 构建结束后 PATH 与 NODE_OPTIONS 全部还原 (try/finally)
+     - 依赖确实只认 Node 16 时用 -NodeDir "D:\ProgramFiles\Nvm\v16.20.2",
+       只把该目录临时前置到本次构建的 PATH
   3) 备份: ~/hipy/backups/deploy_<ts>/{app_before.tar.gz,dist_before.tar.gz,hipy.db.before}
   4) 后端: 打包整个 app/, 排除 app/configs/.env、app/db/hipy.db、app/log、app/whl、app/media、__pycache__
   5) 前端: 替换 ~/hipy/dist (先解压到临时目录, 成功后再 mv)
@@ -483,5 +489,11 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
   - GNU tar 把 J:\... 当成远程主机 => 加 --force-local。
   - 健康检查用 pkill -f "python main.py" 会匹配到 ssh 自己的命令行
     => 写成 pkill -f '[p]ython main.py'。
+  - 别在 PowerShell 里写 `& npm run build:prod`: 会命中 npm.ps1 这个 shim,
+    它用 $MyInvocation 重建参数, 带调用运算符 `&` 时会把 "npm run ..." 截成
+    "pm run ...", 报 Unknown command: "pm"。=> 统一走 cmd.exe /c "npm run build:prod"。
+  - Node 22 直接构建 vue-cli 3 项目会报 error:0308010C:digital envelope routines::unsupported
+    => NODE_OPTIONS 加 --openssl-legacy-provider; 实测 Node 16.20.2 与 Node 22.20.0
+    产出的 dist 逐字节一致 (index.html / app.0965d6db.js 哈希相同)。
   - 前端构建后 dist/index.html 哈希应与本地一致; 手机上 spa_server 不需要重启也能读到新 dist,
     但脚本仍会重启它, 确保 /epg 代理生效。

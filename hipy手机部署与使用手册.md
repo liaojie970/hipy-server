@@ -190,7 +190,7 @@ bash ~/hipy/stop_all.sh
 .\deploy-phone.ps1
 ```
 
-脚本会自动完成：定位手机 IP → 用 Node 16 构建前端 → 备份手机 `app/` 与 `dist/` → 上传后端和前端 → 更新 `spa_server.py` → 迁移数据库（新增 `live_source` 定时任务、切换 `vod_zb_file`）→ 重启后端/前端 → 健康检查。
+脚本会自动完成：定位手机 IP → 构建前端 → 备份手机 `app/` 与 `dist/` → 上传后端和前端 → 更新 `spa_server.py` → 迁移数据库（新增 `live_source` 定时任务、切换 `vod_zb_file`）→ 重启后端/前端 → 健康检查。
 
 常用参数：
 
@@ -203,7 +203,10 @@ bash ~/hipy/stop_all.sh
 | `-SkipRestart` | 只传文件，不重启服务 |
 | `-PhoneIp 192.168.1.101` | 手机 IP 自动找不到时手动指定 |
 
-> 前端构建会自动执行 `nvm use 16.20.2` 并设置 `NODE_OPTIONS=--max-old-space-size=6144`，不需要手动切 Node 版本。
+> 前端构建**不需要切换 Node 版本**：脚本直接用当前 PATH 里的 Node（16/18/22 都行），
+> Node >= 17 会自动加 `--openssl-legacy-provider`，并设置 `NODE_OPTIONS=--max-old-space-size=6144`。
+> 它**不会**执行 `nvm use`，所以不会改全局 Node 版本，同一台机器上的其它 Node 程序
+> （比如 pi agent）不受影响。若确实要用某个特定版本，加 `-NodeDir "D:\ProgramFiles\Nvm\v16.20.2"`。
 
 ---
 
@@ -267,7 +270,7 @@ bash ~/hipy/stop_all.sh
 - 方式：**Termux 裸跑**（不使用 proot/Ubuntu），用 pyenv 从源码编译 **Python 3.12.8**
 - 数据库：SQLite（文件 `~/hipy/app/db/hipy.db`，已自带初始数据）
 - 缓存：默认**进程内内存**（`CACHE_BACKEND=memory`，无需 Redis）；可选 Termux 版 redis
-- 前端：在电脑上用 nvm + node16 构建（接口地址使用相对路径），产物拷到手机；由自写的 `spa_server.py` 提供静态页面，并把 `/api`、`/media` 等请求**反向代理**到后端
+- 前端：在电脑上用 Node（16 或 22，见上一节构建说明）构建（接口地址使用相对路径），产物拷到手机；由自写的 `spa_server.py` 提供静态页面，并把 `/api`、`/media` 等请求**反向代理**到后端
 
 ### 6.2 关键步骤
 
