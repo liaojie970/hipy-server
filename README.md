@@ -217,6 +217,8 @@ hipy-server/
 | 文档 | 内容 |
 | --- | --- |
 | [docs/hipy-vod-source-guide.md](docs/hipy-vod-source-guide.md) | 视频源管理使用说明：源规则 / 订阅配置 / 上游仓库的定位、数据流，TVBox 该复制哪个配置地址，以及订阅正则到底在过滤哪份数据（实现细节） |
+| [docs/live-source-guide.md](docs/live-source-guide.md) | 直播源接入与管理：fanmingming/live、Tvlist、iptv-org 三个外部源如何聚合、去重、补台标、缓存台标与 EPG、测活，并接入 `vod_zb_file` / 定时任务 / `/epg` 接口 |
+| [deploy-phone.ps1](deploy-phone.ps1) | 电脑一键同步到手机：自动定位手机 IP、构建前端、备份、上传后端/前端、迁移数据库、重启并健康检查 |
 
 ### 请求流转（便于定位问题）
 

@@ -9,7 +9,7 @@
 from time import time
 from datetime import datetime
 import ujson
-from urllib.parse import urlparse, parse_qs, urljoin
+from urllib.parse import urlparse, parse_qs, urljoin, quote
 from fastapi import APIRouter, Depends, Query, WebSocket, Request as Req, HTTPException
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 import os
@@ -20,6 +20,7 @@ from core.constants import REDIS_KEY_LOGIN_TOKEN_KEY_PREFIX
 from core.config import settings
 from core.logger import logger
 from utils.web import htmler, render_template_string, remove_comments, parseJson, getRealHost
+from utils.live_epg import norm_epg_key
 from utils.cmd import update_db
 from utils.vod_tool import base64ToImage, get_interval
 from utils.tools import compress_and_encode
@@ -73,6 +74,43 @@ access_name = 'web'
 
 # 存储所有连接到 WebSocket 的客户端
 client_websockets = []
+
+# EPG 索引缓存（按文件 mtime 失效），避免每个频道请求都重新读 5MB JSON
+_EPG_FILES_DIR = Path(__file__).resolve().parents[2] / 't4' / 'files'
+_EPG_INDEX_CACHE = {'mtime': None, 'data': None}
+
+
+def _load_epg_index():
+    path = _EPG_FILES_DIR / 'json' / 'epg_index.json'
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    if _EPG_INDEX_CACHE['mtime'] == mtime:
+        return _EPG_INDEX_CACHE['data']
+    try:
+        with path.open('r', encoding='utf-8') as f:
+            data = ujson.load(f)
+    except Exception as e:  # noqa
+        logger.info(f'读取本地EPG索引失败:{e}')
+        return None
+    _EPG_INDEX_CACHE.update({'mtime': mtime, 'data': data})
+    return data
+
+
+def _epg_empty(channel_name: str):
+    return Response(
+        ujson.dumps({'channel_name': channel_name, 'epg_data': []}, ensure_ascii=False),
+        media_type='application/json',
+    )
+
+
+def _epg_redirect(channel_name: str, date: str, index: dict = None):
+    api = (index or {}).get('upstream_api') or 'https://epg.mxdyeah.top/api/diyp/?ch={name}&date={date}'
+    if not api or '/epg?' in api or api.rstrip('/').endswith('/epg'):
+        return _epg_empty(channel_name)
+    url = api.replace('{name}', quote(channel_name, safe='')).replace('{date}', quote(date, safe=''))
+    return RedirectResponse(url, status_code=302)
 
 
 @router.get("/doc", response_class=HTMLResponse, summary="文档首页")
@@ -582,8 +620,52 @@ async def t4_files(*,
             if re.search('var rule|[\u4E00-\u9FA5]+|function|let |var |const |\(|\)|"|\'', js_code):
                 js_code = compress_and_encode(js_code)
         return Response(js_code, media_type=media_type)
+    elif file_path.endswith('.m3u'):
+        # 聚合任务会把台标地址写成 {{host}}/files/m3u/logo/xxx.png，
+        # 这里按请求 Host 渲染，局域网/公网访问都能拿到正确地址。
+        with open(file_path, encoding='utf-8') as f:
+            m3u_text = f.read()
+        m3u_text = m3u_text.replace('{{host}}', host).replace('{{ host }}', host)
+        return Response(m3u_text, media_type=media_type or 'text/plain; charset=utf-8')
     else:
         return FileResponse(file_path, media_type=media_type)
+
+
+@router.get('/epg', summary="本地EPG接口")
+async def local_epg(*,
+                    ch: str = Query(..., title="频道名"),
+                    date: str = Query('', title="日期，格式 YYYY-MM-DD")):
+    """供 TVBoxOS 的 `lives.epg` 使用，只返回指定频道当天的节目。
+
+    数据来自直播源聚合任务生成的 json/epg_index.json。索引不存在或频道未收录时，
+    回退到 upstream_api（默认还是原来的 epg.mxdyeah.top），保证不会比改之前更差。
+    """
+    date = (date or datetime.now().strftime('%Y-%m-%d')).strip()
+    try:
+        datetime.strptime(date, '%Y-%m-%d')
+    except ValueError:
+        date = datetime.now().strftime('%Y-%m-%d')
+
+    index = _load_epg_index()
+    if not index:
+        return _epg_redirect(ch, date)
+
+    keys = index.get('keys') or {}
+    channel_id = keys.get(norm_epg_key(ch))
+    if not channel_id:
+        channel_id = ch if ch in (index.get('channels') or {}) else None
+    if not channel_id:
+        return _epg_redirect(ch, date, index)
+
+    programs = (index.get('channels') or {}).get(channel_id) or []
+    day_start = f'{date} 00:00:00'
+    day_end = f'{date} 23:59:59'
+    day_programs = [
+        p for p in programs
+        if p.get('start') and p.get('end') and p['start'] <= day_end and p['end'] >= day_start
+    ]
+    body = ujson.dumps({'channel_name': ch, 'epg_data': day_programs}, ensure_ascii=False)
+    return Response(body, media_type='application/json', headers={'Cache-Control': 'public, max-age=600'})
 
 
 @router.get('/baidu', summary="访问百度")

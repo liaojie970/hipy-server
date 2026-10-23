@@ -1,0 +1,240 @@
+{
+  "说明": "直播源聚合配置。任务 tasks/live_source.py 读取本文件，下载 sources 里启用的源，去重/补台标/可选测活后，输出到 output.m3u（以及 output.local_txt 兼容旧配置）。",
+  "output": {
+    "m3u": "m3u/live_merged.m3u",
+    "local_txt": "txt/mytv.txt",
+    "meta": "json/live_merged_meta.json",
+    "mirror_local_txt": false,
+    "min_final_count": 100
+  },
+  "epg": "https://live.fanmingming.cn/e.xml",
+  "epg_cache": {
+    "enabled": true,
+    "url": "https://live.fanmingming.cn/e.xml",
+    "fallback_urls": [
+      "https://raw.githubusercontent.com/fanmingming/live/main/e.xml"
+    ],
+    "upstream_api": "https://epg.mxdyeah.top/api/diyp/?ch={name}&date={date}",
+    "timeout": 60,
+    "max_age_hours": 12,
+    "keep_days": 3,
+    "xml_file": "txt/e.xml",
+    "index_file": "json/epg_index.json",
+    "trim_to_channels": true,
+    "write_xml": true
+  },
+  "logo": {
+    "backfill_from_sources": true,
+    "cache_local": true,
+    "dir": "m3u/logo",
+    "public_base_url": "",
+    "timeout": 8,
+    "workers": 8,
+    "max_bytes": 2097152,
+    "cache_existing": true,
+    "rewrite_m3u": true,
+    "url_rewrites": [
+      {
+        "from": "https://live.fanmingming.com/",
+        "to": "https://raw.githubusercontent.com/fanmingming/live/main/"
+      }
+    ]
+  },
+  "request": {
+    "timeout": 12,
+    "connect_timeout": 4,
+    "retries": 2,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "github_proxies": [
+      "https://gh-proxy.com/",
+      "https://ghproxy.net/"
+    ],
+    "direct_fallback": true
+  },
+  "check": {
+    "enabled": false,
+    "timeout": 6,
+    "workers": 16,
+    "keep_untestable": true
+  },
+  "dedupe": {
+    "max_per_name": 1,
+    "dedupe_url": true
+  },
+  "group_order": [
+    "央视高清",
+    "央视",
+    "卫视",
+    "地方",
+    "港澳台",
+    "新闻",
+    "财经",
+    "影视",
+    "体育",
+    "少儿",
+    "科教",
+    "纪录",
+    "音乐",
+    "radio",
+    "其他"
+  ],
+  "group_map": {
+    "WZYTV": "央视",
+    "IPTV": "地方",
+    "General": "其他",
+    "News": "新闻",
+    "Sports": "体育",
+    "Movies": "影视",
+    "Kids": "少儿",
+    "Music": "音乐",
+    "Religious": "其他",
+    "Undefined": "其他",
+    "Education": "科教",
+    "Culture": "纪录",
+    "Documentary": "纪录",
+    "Entertainment": "影视",
+    "Family": "其他",
+    "Comedy": "影视",
+    "Series": "影视",
+    "Science": "科教",
+    "Anime": "少儿",
+    "Animation": "少儿",
+    "Business": "财经",
+    "Travel": "其他",
+    "Weather": "其他",
+    "Shop": "其他",
+    "Auto": "其他",
+    "Public": "其他",
+    "Legislative": "其他",
+    "Local": "地方",
+    "Relax": "其他",
+    "Outdoor": "其他",
+    "Classic": "影视",
+    "Lifestyle": "其他"
+  },
+  "sources": [
+    {
+      "name": "fanmingming-ipv4",
+      "url": "https://live.fanmingming.com/tv/m3u/index.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/index.m3u"
+      ],
+      "enabled": true,
+      "priority": 1,
+      "timeout": 8,
+      "note": "fanmingming/live 主源（IPv4），自带 tvg-logo 与 EPG，最稳定，作为第一优先级。live.fanmingming.com 不通时会自动回退 GitHub raw。"
+    },
+    {
+      "name": "fanmingming-ipv6",
+      "url": "https://live.fanmingming.com/tv/m3u/ipv6.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u"
+      ],
+      "enabled": false,
+      "priority": 2,
+      "note": "fanmingming/live IPv6 源。只有播放端网络支持 IPv6 时才建议启用。"
+    },
+    {
+      "name": "fanmingming-itv",
+      "url": "https://live.fanmingming.com/tv/m3u/itv.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/itv.m3u"
+      ],
+      "enabled": false,
+      "priority": 3,
+      "note": "fanmingming/live 备用源，质量参差，默认关闭。"
+    },
+    {
+      "name": "fanmingming-radio",
+      "url": "https://live.fanmingming.com/radio/m3u/index.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/fanmingming/live/main/radio/m3u/index.m3u"
+      ],
+      "enabled": false,
+      "priority": 4,
+      "default_group": "radio",
+      "note": "fanmingming/live 广播源。"
+    },
+    {
+      "name": "tvlist-cctv",
+      "url": "https://raw.githubusercontent.com/imDazui/Tvlist-awesome-m3u-m3u8/master/m3u/CCTV.m3u",
+      "enabled": true,
+      "priority": 20,
+      "note": "Tvlist 的 CCTV 合集。默认参与聚合，但优先级低于 fanmingming；重名频道会被去重。"
+    },
+    {
+      "name": "tvlist-cctv-hd",
+      "url": "https://raw.githubusercontent.com/imDazui/Tvlist-awesome-m3u-m3u8/master/m3u/_CCTVHD.m3u8",
+      "enabled": false,
+      "priority": 21,
+      "note": "Tvlist 的 CCTV 高清合集，默认关闭，可作备用。"
+    },
+    {
+      "name": "tvlist-5000",
+      "url": "https://raw.githubusercontent.com/imDazui/Tvlist-awesome-m3u-m3u8/master/m3u/5000%E4%B8%AA%E7%9B%B4%E6%92%AD%E6%BA%90%E5%85%A8%E9%83%A8%E6%9C%89%E6%95%88.m3u",
+      "enabled": false,
+      "priority": 50,
+      "note": "Tvlist 的 5000 源大合集。体积大、失效多，默认关闭；启用前建议先打开 check.enabled 测活。"
+    },
+    {
+      "name": "iptv-org-cn",
+      "url": "https://iptv-org.github.io/iptv/countries/cn.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/cn.m3u"
+      ],
+      "enabled": true,
+      "priority": 30,
+      "note": "iptv-org 中国区播放列表，带 tvg-logo 和英文分组。fallback 是 raw streams/cn.m3u，条数更多但不带台标。",
+      "timeout": 30
+    },
+    {
+      "name": "iptv-org-hk",
+      "url": "https://iptv-org.github.io/iptv/countries/hk.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/hk.m3u"
+      ],
+      "enabled": true,
+      "priority": 31,
+      "note": "iptv-org 香港区播放列表，约 17 个频道。",
+      "timeout": 30
+    },
+    {
+      "name": "iptv-org-tw",
+      "url": "https://iptv-org.github.io/iptv/countries/tw.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/tw.m3u"
+      ],
+      "enabled": true,
+      "priority": 32,
+      "note": "iptv-org 台湾区播放列表，约 31 个频道。",
+      "timeout": 30
+    },
+    {
+      "name": "iptv-org-mo",
+      "url": "https://iptv-org.github.io/iptv/countries/mo.m3u",
+      "fallback_urls": [
+        "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/mo.m3u"
+      ],
+      "enabled": false,
+      "priority": 33,
+      "note": "iptv-org 澳门区播放列表，频道很少，默认关闭。",
+      "timeout": 30
+    },
+    {
+      "name": "iptv-org-streams-cn",
+      "url": "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/cn.m3u",
+      "enabled": false,
+      "priority": 45,
+      "note": "iptv-org 中国区原始 streams 文件，约 500 条，不带台标，比 countries/cn.m3u 多很多地方台。默认关闭。",
+      "timeout": 30
+    },
+    {
+      "name": "iptv-org-index",
+      "url": "https://iptv-org.github.io/iptv/index.m3u",
+      "enabled": false,
+      "priority": 46,
+      "note": "iptv-org 全球主列表，2000+ 频道，带台标，体积很大。默认关闭，只建议在确实需要全球频道时临时开启。",
+      "timeout": 40
+    }
+  ]
+}

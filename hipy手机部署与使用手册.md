@@ -182,6 +182,29 @@ bash ~/hipy/stop_all.sh
    ```
    （这一步在 `start_all.sh` 里已经自动做了）
 
+### 4.6 电脑改完代码后：一键同步到手机
+
+在电脑的 `hipy-server` 目录执行：
+
+```powershell
+.\deploy-phone.ps1
+```
+
+脚本会自动完成：定位手机 IP → 用 Node 16 构建前端 → 备份手机 `app/` 与 `dist/` → 上传后端和前端 → 更新 `spa_server.py` → 迁移数据库（新增 `live_source` 定时任务、切换 `vod_zb_file`）→ 重启后端/前端 → 健康检查。
+
+常用参数：
+
+| 参数 | 作用 |
+|------|------|
+| `-RefreshLive` | 同步后立刻跑一次直播源聚合（下载 m3u / 台标 / EPG，约 1-3 分钟） |
+| `-SkipFrontend` | 只同步后端，不动前端 |
+| `-SkipBuild` | 不重新构建，直接使用现有 `dist` |
+| `-ForceBuild` | 强制重新构建前端 |
+| `-SkipRestart` | 只传文件，不重启服务 |
+| `-PhoneIp 192.168.1.101` | 手机 IP 自动找不到时手动指定 |
+
+> 前端构建会自动执行 `nvm use 16.20.2` 并设置 `NODE_OPTIONS=--max-old-space-size=6144`，不需要手动切 Node 版本。
+
 ---
 
 ## 五、常见问题（FAQ）

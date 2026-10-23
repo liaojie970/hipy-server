@@ -33,3 +33,14 @@
 
 # 数据库备份文件(人工备份, 不入版本库)
 /app/db/hipy.db.bak*
+
+# 直播源聚合生成物(由 tasks/live_source.py 生成, 不入版本库)
+/app/t4/files/m3u/live_merged.m3u
+/app/t4/files/m3u/logo/
+/app/t4/files/txt/e.xml
+/app/t4/files/json/live_merged_meta.json
+/app/t4/files/json/epg_index.json
+/app/t4/files/**/*.tmp
+
+# 手机部署状态(本机记录)
+/.deploy-phone-state.json

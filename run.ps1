@@ -454,8 +454,21 @@ function Start-Backend {
     $py = Resolve-Python
     Stop-ByPort -Port $BackendPort -Name '后端' -OnlyNames @('python', 'pythonw')
     Set-ProxyEnv
-    Start-Background -FilePath $py -ArgumentList @('main.py') `
-        -WorkingDirectory $AppDir -Name 'backend' | Out-Null
+    # 前端启动时会设置 $env:port，而 Windows 环境变量大小写不敏感，
+    # pydantic 会把 PORT 读成前端端口，导致后端也去绑 8082 并与前端冲突。
+    # 启动后端前显式锁定为后端端口，启动完成后恢复，避免污染当前终端。
+    $oldPort = $env:PORT
+    try {
+        $env:PORT = "$BackendPort"
+        Start-Background -FilePath $py -ArgumentList @('main.py') `
+            -WorkingDirectory $AppDir -Name 'backend' | Out-Null
+    } finally {
+        if ($null -eq $oldPort) {
+            Remove-Item Env:PORT -ErrorAction SilentlyContinue
+        } else {
+            $env:PORT = $oldPort
+        }
+    }
     if (-not (Wait-PortListening -Port $BackendPort -TimeoutSec 30 -OnlyNames @('python', 'pythonw'))) {
         Write-Warn "后端 30 秒内未监听端口 $BackendPort，请检查日志：$(Join-Path $LogDir 'backend.err.log')"
     }
@@ -519,10 +532,20 @@ function Start-Frontend {
     if ($foreign) {
         Write-Warn "端口 $FrontendPort 已被其它进程占用：$foreign（非本脚本前端），将自动改用其它端口；如需使用该端口请先停止它"
     }
-    # 让 vue.config.js 读取 process.env.port，锁定使用指定端口
-    $env:port = "$FrontendPort"
-    Start-Background -FilePath 'cmd.exe' -ArgumentList @('/c', "npm $npmCmd") `
-        -WorkingDirectory $FrontendDir -Name 'frontend' | Out-Null
+    # 让 vue.config.js 读取 process.env.port，锁定使用指定端口。
+    # 只在启动子进程期间设置，启动后恢复，避免影响同终端里后续的后端启动。
+    $oldPort = $env:port
+    try {
+        $env:port = "$FrontendPort"
+        Start-Background -FilePath 'cmd.exe' -ArgumentList @('/c', "npm $npmCmd") `
+            -WorkingDirectory $FrontendDir -Name 'frontend' | Out-Null
+    } finally {
+        if ($null -eq $oldPort) {
+            Remove-Item Env:port -ErrorAction SilentlyContinue
+        } else {
+            $env:port = $oldPort
+        }
+    }
     # 端口被占用时 vue-cli 会自动换端口，轮询日志解析实际端口（仅认 node 进程）
     $resolvedPort = $FrontendPort
     $deadline = (Get-Date).AddSeconds(60)

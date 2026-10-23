@@ -448,3 +448,40 @@ WiFi IP: 192.168.1.113   (PC: 192.168.1.110)
   用 curl 手工调接口时写 Authorization: Bearer 会一直返回
   {"code":5004,"msg":"未登录或登录过期"}。
 ================================================================
+
+================================================================
+八、一键同步脚本 deploy-phone.ps1   2026-10-23
+================================================================
+背景: 手机 app 不是 git 仓库, 每次改完代码都要手工 scp/tar + 备份 + 重启,
+      容易漏文件、漏迁移、忘记重启后端。
+
+用法(电脑 PowerShell):
+  cd J:\CodeRepository\PythonWorkspace\github\hipy-server
+  .\deploy-phone.ps1                    # 默认同步后端 + 前端 + 数据库迁移 + 重启
+  .\deploy-phone.ps1 -RefreshLive       # 同步后立即跑一次直播源聚合
+  .\deploy-phone.ps1 -SkipFrontend      # 只更新后端
+  .\deploy-phone.ps1 -SkipBuild         # 前端不重新 build, 直接用现有 dist
+  .\deploy-phone.ps1 -PhoneIp 192.168.1.101
+
+脚本做的事:
+  1) 定位手机: ~/.ssh/config 的 hipy -> adb -> 复用 ~/.ssh/ssh-hipy.ps1 扫 8022
+  2) 前端: 源码 mtime 比 dist 新时自动 nvm use 16.20.2 + build:prod
+     (NODE_OPTIONS=--max-old-space-size=6144, 解决 node16 OOM)
+  3) 备份: ~/hipy/backups/deploy_<ts>/{app_before.tar.gz,dist_before.tar.gz,hipy.db.before}
+  4) 后端: 打包整个 app/, 排除 app/configs/.env、app/db/hipy.db、app/log、app/whl、app/media、__pycache__
+  5) 前端: 替换 ~/hipy/dist (先解压到临时目录, 成功后再 mv)
+  6) spa_server.py: 从仓库 phone/spa_server.py 覆盖, 已新增 /epg 反向代理
+  7) DB: python db/migrate_live_source.py
+     - 新增/更新 t_job id=17 live_source, cron 0 30 3 * * ?, active=1, next_run=次日 03:30
+     - vod_zb_use=file, vod_zb_file=m3u/live_merged.m3u (只从旧默认值切换)
+  8) 重启: pkill '[p]ython main.py' / '[s]pa_server.py' + setsid nohup start_backend.sh/start_frontend.sh
+  9) 验证: /docs、/、/files/m3u/live_merged.m3u、/epg (5707 与 8080 各一次)
+
+踩过的坑:
+  - PowerShell here-string 是 CRLF, 直接 ssh 传给 Termux bash 会变成 set -e\r / cd ...\r
+    => Invoke-Ssh 里统一 -replace "`r`n","`n"。
+  - GNU tar 把 J:\... 当成远程主机 => 加 --force-local。
+  - 健康检查用 pkill -f "python main.py" 会匹配到 ssh 自己的命令行
+    => 写成 pkill -f '[p]ython main.py'。
+  - 前端构建后 dist/index.html 哈希应与本地一致; 手机上 spa_server 不需要重启也能读到新 dist,
+    但脚本仍会重启它, 确保 /epg 代理生效。
