@@ -220,8 +220,15 @@ bash ~/hipy/stop_all.sh
 
 **Q2：提示「密码错误」？**
 - 确认账号密码完全正确（注意大小写，密码区分大小写）。
-- 如果浏览器自动填充了旧密码，**先清空输入框再手动输入**。
+- 如果浏览器自动填充了旧密码，**先清空输入框再手动输入**；「记住密码」存的旧密码会强制回填，必要时清掉该站点的 Cookie（`username` / `password` / `rememberMe`）或用无痕窗口。
 - 换 `user / 123456` 试试，排除是单个账号的问题。
+- **自己改数据库密码时必须注意**：前端登录会先把密码做一次 `md5` 再发给后端（`src/store/modules/user.js` 里的 `md5(password)`），后端再 `bcrypt.verify`。所以 `t_users.hashed_password` 里存的必须是 `bcrypt(md5(明文))`，写成 `bcrypt(明文)` 会出现「curl 能登、页面登不上」。正确做法：
+  ```python
+  from passlib.context import CryptContext
+  import hashlib
+  h = CryptContext(schemes=['bcrypt']).hash(hashlib.md5(b'123456').hexdigest())
+  # update t_users set hashed_password=<h> where username='admin'
+  ```
 
 **Q3：手机重启后打不开？**
 系统不会自动启动。按 **4.1** 执行 `bash ~/hipy/start_all.sh` 即可恢复。
