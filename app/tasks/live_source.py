@@ -837,6 +837,7 @@ def run(config_path: Path = CONFIG_PATH) -> dict:
     dedupe_cfg = dict(cfg.get('check') or {})
     dedupe_cfg.update(cfg.get('dedupe') or {})
     channels = _dedupe(all_channels, dedupe_cfg)
+    deduped_count = len(channels)
     logger.info(f'[live_source] 去重后 {len(channels)} 条（原始 {raw_count} 条）')
 
     dropped_count = 0
@@ -875,15 +876,35 @@ def run(config_path: Path = CONFIG_PATH) -> dict:
     for c in channels:
         groups[c.get('group') or '其他'] = groups.get(c.get('group') or '其他', 0) + 1
 
+    # 产物清单（相对 FILES_DIR），方便脚本/前端判断某个产物是否已生成
+    outputs = {'m3u': out_cfg.get('m3u') or 'm3u/live_merged.m3u'}
+    if out_cfg.get('mirror_local_txt', True) and out_cfg.get('local_txt'):
+        outputs['local_txt'] = out_cfg['local_txt']
+    if out_cfg.get('meta'):
+        outputs['meta'] = out_cfg['meta']
+    epg_cfg = cfg.get('epg_cache') or {}
+    if epg_cfg.get('enabled'):
+        if epg_cfg.get('write_xml', True):
+            outputs['epg_xml'] = str(epg_cfg.get('xml_file') or 'txt/e.xml').strip('/')
+        outputs['epg_index'] = str(epg_cfg.get('index_file') or 'json/epg_index.json').strip('/')
+    if (cfg.get('logo') or {}).get('cache_local'):
+        outputs['logo_dir'] = str((cfg.get('logo') or {}).get('dir') or 'm3u/logo').strip('/')
+    outputs['epg_url'] = epg_url
+
     meta = {
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'updated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
         'raw_count': raw_count,
+        'deduped_count': deduped_count,
         'final_count': len(channels),
+        'removed_count': raw_count - len(channels),
+        'dropped_by_dedupe': raw_count - deduped_count,
         'dropped_by_check': dropped_count,
         'groups': groups,
         'sources': source_stats,
         'logo_cache': logo_stats,
         'epg_cache': epg_stats,
+        'outputs': outputs,
         'errors': errors,
     }
     if out_cfg.get('meta'):

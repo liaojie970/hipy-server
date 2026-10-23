@@ -122,6 +122,22 @@ app/t4/files/m3u/live_merged.m3u          # 聚合结果
 app/t4/files/json/live_merged_meta.json   # 每个源的条数、分组统计、失败原因
 ```
 
+`live_merged_meta.json` 主要字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `generated_at` / `updated_at` | 本次生成时间（`YYYY-MM-DD HH:MM:SS`） |
+| `raw_count` | 各源解析出的原始条目总数 |
+| `deduped_count` | 跨源去重后的条目数 |
+| `final_count` | 最终写入 m3u 的条目数 |
+| `removed_count` | 一共少了多少条（`raw_count - final_count`） |
+| `dropped_by_dedupe` / `dropped_by_check` | 去重剔除数 / 测活剔除数 |
+| `groups` | 每个分组的条目数 |
+| `sources` | 每个源的条数与失败原因 |
+| `logo_cache` / `epg_cache` | 台标、EPG 缓存统计 |
+| `outputs` | 本次写出/依赖的产物路径（相对 `t4/files/`），含 `epg_url` |
+| `errors` | 失败源汇总 |
+
 默认**不会**覆盖仓库里已跟踪的 `t4/files/txt/mytv.txt`，避免每次跑任务都把生成物带进 git 变更。
 
 ### 3. 让播放端用上
