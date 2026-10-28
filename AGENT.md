@@ -64,10 +64,17 @@ ssh -F ~/.ssh/config hipy 'md5sum ~/hipy/app/tasks/live_health.py'
 ## 4. 重启 / 探活 / 看门狗
 
 ```bash
-bash ~/hipy/_restart.sh                                   # 杀后端 + 起全部(含看门狗)
+# 从本机发起（注意 setsid + 三个重定向，否则 SSH 通道会被挂住不返回）
+ssh -F ~/.ssh/config hipy 'bash ~/hipy/_restart.sh' </dev/null
+ssh -F ~/.ssh/config hipy 'setsid nohup bash ~/hipy/start_all.sh >/dev/null 2>&1 </dev/null' </dev/null
 curl -s -o /dev/null -w '%{http_code}\n' -m 5 http://127.0.0.1:5707/docs   # 200 才算活着
 tail -20 ~/hipy/watchdog.log                              # 看门狗日志
 ```
+
+> **别在 SSH 前台直接跑 `start_all.sh`**：它会 `termux-wake-lock` 并挂后台进程，
+> 终端不返回 → 本机这条命令会一直挂着（2026-10-28 就这样白等了 4 小时，服务其实早起来了）。
+> 一律 `setsid nohup ... >/dev/null 2>&1 </dev/null` 或直接用 `_restart.sh`，
+> 并且本机所有远程命令都带 `timeout` + `</dev/null`。
 
 - 后端脚本：`start_all.sh`（含看门狗第 5 步）、`start_backend.sh`、`_restart.sh`、
   `_watchdog.sh`、`_fix.sh`（设好 HOME/PREFIX/PY/PATH，跑 python 用它包一层：
@@ -91,6 +98,12 @@ tail -20 ~/hipy/watchdog.log                              # 看门狗日志
    从 Termux/SSH 会话（`untrusted_app_27`）里 `pkill` 会 `Permission denied`，
    只能 `adb shell am force-stop com.termux` 或手机设置里强制停止 Termux。
    → **所以拉服务一律在 SSH/Termux 会话里做，别用 adb run-as。**
+   这种进程连接口都杀不动：`am force-stop com.termux` / `am kill` 都无效（实测），
+   唯一办法是**同域杀**：`adb shell 'run-as com.termux kill -9 <pid>'`。
+6. **Termux 会话的一次性自启钩子**：`~/.bashrc`、`~/.profile` 里有一行
+   `[ -f $HOME/hipy/.autostart_once ] && [ -t 1 ] && bash $HOME/hipy/_autostart_once.sh`，
+   只要 `touch ~/hipy/.autostart_once` 再让用户打开一次 Termux，服务就会在 app 域自动拉起
+   （标记执行后自动删除，不会反复触发）。
 4. **不要在两个任务里写同一份 m3u/mytv**：`live_source`（03:30 重建）与 `live_check`
    （0/6/12/18 点复查）共用一把锁 `t4/files/json/.live_check.lock`，抢不到就放弃本轮；
    `tv_spider` 默认 `write_mytv=false`。
