@@ -19,6 +19,7 @@ from urllib import request, parse
 from pathlib import Path
 import urllib
 import urllib.request
+import requests
 
 """
 配置示例:
@@ -595,6 +596,10 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
         if url.find('https:') < 0 and url.find('http:') < 0:
             url = id
             parse = 1
+        # m3u8 统一走本站同源代理，避免第三方 CDN 的 CORS 限制
+        proxy_url = self.getProxyUrl()
+        if proxy_url and url.startswith('http') and '.m3u8' in url and not url.startswith(proxy_url):
+            url = proxy_url + '&url=' + urllib.parse.quote(url, safe='') + '&name=1.m3u8'
         result["parse"] = parse  # 1=嗅探,0=播放
         result["playUrl"] = ''
         result["url"] = url
@@ -750,8 +755,71 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
     }
 
     def localProxy(self, params):
-        return [200, "video/MP2T", ""]
+        """本站同源代理：转发 m3u8 / ts，并把 m3u8 里的分片地址改写成同源代理地址。"""
+        url = (params or {}).get('url') or ''
+        if not isinstance(url, str) or not url.startswith(('http://', 'https://')):
+            return [400, 'text/plain', 'invalid url']
 
+        host = (urllib.parse.urlsplit(url).hostname or '').lower()
+        allowed = ('.cntv.cn', '.cctv.com', '.cctvpic.com', '.qcloudcdn.com',
+                   '.lxdns.com', '.myhwcdn.cn', '.myalicdn.com', '.kfcbest.com',
+                   '.playdreamer.cn')
+        if not any(host == item[1:] or host.endswith(item) for item in allowed):
+            return [403, 'text/plain', 'host not allowed']
+
+        req_headers = {
+            'User-Agent': self.header.get('User-Agent', 'Mozilla/5.0'),
+            'Referer': 'https://tv.cctv.com/',
+            'Accept': '*/*',
+        }
+        try:
+            rsp = requests.get(url, headers=req_headers, timeout=20, verify=False)
+        except Exception as e:
+            self.log(f'本地代理请求失败: {e}')
+            return [502, 'text/plain', f'proxy error: {e}']
+
+        content_type = (rsp.headers.get('Content-Type') or '').split(';')[0].strip()
+        is_m3u8 = urllib.parse.urlsplit(rsp.url or url).path.endswith('.m3u8') \
+            or 'mpegurl' in content_type.lower()
+        if not is_m3u8:
+            return [rsp.status_code, content_type or 'video/MP2T', rsp.content,
+                    {'Access-Control-Allow-Origin': '*'}]
+
+        if rsp.status_code != 200:
+            return [rsp.status_code, 'text/plain', rsp.text,
+                    {'Access-Control-Allow-Origin': '*'}]
+
+        base_url = rsp.url or url
+
+        proxy_url = self.getProxyUrl()
+        proxy_uri = urllib.parse.urlsplit(proxy_url)
+        # 用相对地址，避免 spider 实例缓存了旧请求的 host；中文路径要转义
+        proxy_path = urllib.parse.quote(proxy_uri.path, safe='/') + '?' + proxy_uri.query
+
+        def to_proxy(target):
+            if not target or target.startswith(('data:', 'blob:')):
+                return target
+            if not target.startswith(('http://', 'https://')):
+                target = urllib.parse.urljoin(base_url, target)
+            if not proxy_path or proxy_path == '?':
+                return target
+            return proxy_path + '&url=' + urllib.parse.quote(target, safe='') + '&name=1.m3u8'
+
+        lines = []
+        for line in rsp.text.splitlines():
+            value = line.strip()
+            if not value:
+                lines.append(line)
+                continue
+            if value.startswith('#'):
+                # EXT-X-KEY / EXT-X-MAP / EXT-X-MEDIA 里的 URI 也要代理
+                line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + to_proxy(m.group(1)) + '"', line)
+                lines.append(line)
+            else:
+                lines.append(to_proxy(value))
+        content = '\n'.join(lines) + '\n'
+        return [200, 'application/vnd.apple.mpegurl', content,
+                {'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache'}]
     # -----------------------------------------------自定义函数-----------------------------------------------
     # 访问网页
     def webReadFile(self, urlStr, header):
@@ -881,49 +949,69 @@ class Spider(BaseSpider):  # 元类 默认的元类 type
         @return:
         """
         url = "https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={0}".format(urlTxt)
-        # htmlTxt = self.webReadFile(urlStr=url, header=self.header)
-        htmlTxt = self.fetch(url).text
+        htmlTxt = self.fetch(url, timeout=8).text
         jo = json.loads(htmlTxt)
-        link = jo['hls_url'].strip()
+        link = (jo.get('hls_url') or '').strip()
+        if not link:
+            self.log('未获取到 hls_url')
+            return ''
         print('hls_url:', link)
-        # print(json.dumps(jo))
-        link1 = jo['manifest']['hls_h5e_url'].strip()
+        link1 = ((jo.get('manifest') or {}).get('hls_h5e_url') or '').strip()
         print('hls_h5e_url:', link1)
-        # 获取域名前缀
-        urlPrefix = self.get_RegexGetText(Text=link, RegexText='(http[s]?://[a-zA-z0-9.]+)/', Index=1)
-        print("urlPrefix:", urlPrefix)
-        # 域名前缀指定替换,然后可以获取到更高质量的视频列表
-        # /asp/h5e/hls/2000/0303000a/3/default/3628bb15af644f588dc91ec68425b9ac/2000.m3u8
-        # new_link = link.replace(f'{urlPrefix}/asp/hls/', 'https://dh5.cntv.qcloudcdn.com/asp/h5e/hls/').split('?')[0]
-        # https://dh5.cntv.lxdns.com/asp//hls/2000/0303000a/3/default/2d0b6a3bfcf94da79cc16ae106d45a17/2000.m3u8
-        new_link = link1.split('?')[0]
-        print('new_link:', new_link)
-        new_link = new_link.replace('https://dh5.cntv.qcloudcdn.com', 'https://dh5.cntv.myhwcdn.cn')
-        html = self.webReadFile(urlStr=new_link, header=self.header)
-        content = html.strip()
-        arr = content.split('\n')
-        subUrl = arr[-1].split('/')
-        # hdUrl = urlPrefix + arr[-1]
 
-        # subUrl[3] = '2000'
-        # subUrl[-1] = '2000.m3u8'
-        # hdUrl = urlPrefix + '/'.join(subUrl)
-        maxVideo = subUrl[-1].replace('.m3u8', '')
-        print('maxVideo:', maxVideo)
-        # if int(maxVideo) < 2000:
-        #     maxVideo = '2000'
-        hdUrl = link.replace('main', maxVideo)
-        hdUrl = hdUrl.replace(urlPrefix, 'https://newcntv.qcloudcdn.com')
+        # 获取域名前缀，并统一换到稳定、支持高码率的 qcloud 域名
+        urlPrefix = self.get_RegexGetText(Text=link, RegexText=r'(http[s]?://[a-zA-Z0-9.]+)/', Index=1)
+        print("urlPrefix:", urlPrefix)
+        if not urlPrefix:
+            self.log(f'未识别到 hls_url 域名: {link}')
+            return link.split('?')[0]
+        base = link.replace(urlPrefix, 'https://newcntv.qcloudcdn.com').split('?')[0]
+
+        # hls_h5e_url 只用于探测最高码率；部分网络（如手机 VPN/TUN）访问不了该 CDN，
+        # 失败时不能让整个播放地址解析失败。
+        max_videos = []
+        if link1:
+            new_link = link1.split('?')[0]
+            new_link = new_link.replace('https://dh5.cntv.qcloudcdn.com', 'https://dh5.cntv.myhwcdn.cn')
+            print('new_link:', new_link)
+            try:
+                content = self.fetch(new_link, timeout=5).text.strip()
+                arr = [x.strip() for x in content.splitlines()
+                       if x.strip() and not x.strip().startswith('#')]
+                if arr:
+                    max_videos.append(arr[-1].split('/')[-1].replace('.m3u8', ''))
+                    print('maxVideo:', max_videos[-1])
+            except Exception as e:
+                self.log(f'获取最高清晰度失败，使用候选码率: {e}')
+
+        max_videos += ['4000', '3000', '2000', '1500', '1200', '850', '450', 'main']
+        hdUrl = ''
+        probe_errors = 0
+        for maxVideo in max_videos:
+            if maxVideo == 'main':
+                candidate = base
+            else:
+                candidate = base.replace('/hls/main/', f'/hls/{maxVideo}/') \
+                    .replace('/main.m3u8', f'/{maxVideo}.m3u8')
+            try:
+                rsp = self.fetch(candidate + '?maxbr=2048', timeout=5)
+            except Exception as e:
+                probe_errors += 1
+                self.log(f'码率 {maxVideo} 探测失败: {e}')
+                # 同一 CDN 连续不可达时不再逐个超时，直接回退主播放列表
+                if probe_errors >= 2:
+                    break
+                continue
+            if rsp.status_code == 200 and '#EXTM3U' in rsp.text[:200]:
+                hdUrl = candidate
+                break
+
+        # 所有码率都探测失败时，直接返回主播放列表，交给播放器/本地代理尝试
+        if not hdUrl:
+            hdUrl = base
         print('hdUrl:', hdUrl)
-        hdRsp = self.TestWebPage(urlStr=hdUrl, header=self.header)
-        if hdRsp == 200:
-            url = hdUrl.split('?')[0]
-            url = self.hookM3u8(url)
-            self.log(f'视频链接: {url}')
-        else:
-            url = ''
-            self.log('未获取到视频链接')
-        return url
+        self.log(f'视频链接: {hdUrl}')
+        return hdUrl
 
     def fixm3u8_url(self, url):
         # 获取域名前缀

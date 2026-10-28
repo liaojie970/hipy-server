@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "repo": "ssili126/tv",
+  "github_proxy": "",
+  "timeout": 8,
+  "min_tv_lines": 200,
+  "min_mytv_lines": 200,
+  "write_tv": true,
+  "write_mytv": false,
+  "drop_auth_urls": true,
+  "drop_patterns": [
+    "[?&](Authinfo|authinfo|token|access_token|authid)="
+  ],
+  "keep_backup": true,
+  "github_mirrors": [
+    "https://gh-proxy.com/",
+    "https://ghfast.top/",
+    ""
+  ],
+  "github_proxy_fallback": true
+}

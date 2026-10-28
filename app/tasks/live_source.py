@@ -22,6 +22,7 @@
 import hashlib
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -491,56 +492,79 @@ def _cache_logos(channels: list, cfg: dict, req_cfg: dict) -> dict:
     return stats
 
 
+# 测活实现已迁移到 tasks/live_health.py（三级测活 + 台账 + 软删除），
+# 这里保留两个薄封装，兼容旧代码/旧配置里的直接调用。
 def _check_one(channel: dict, check_cfg: dict) -> bool:
     """返回 True=保留。非 http(s) 协议无法用 requests 测活，按配置决定是否保留。"""
-    url = channel['url']
-    if not url.lower().startswith(('http://', 'https://')):
-        return bool(check_cfg.get('keep_untestable', True))
-    timeout = float(check_cfg.get('timeout') or 6)
-    ua = check_cfg.get('user_agent') or DEFAULT_USER_AGENT
-    # 测活优先直连，避免坏代理导致全部误判；只有确实配了代理才额外试一次
-    trust_env_options = (False, True) if _env_proxy_configured() else (False,)
-    for trust_env in trust_env_options:
-        session = _build_session(ua, trust_env)
-        try:
-            r = session.get(url, timeout=timeout, stream=True, allow_redirects=True)
-            ok = r.status_code < 400
-            r.close()
-            return ok
-        except Exception:  # noqa
-            continue
-        finally:
-            session.close()
-    return False
+    from tasks import live_health
+    return bool(live_health.probe(channel['url'], {'check': check_cfg})['ok'])
 
 
 def _check_channels(channels: list, check_cfg: dict) -> tuple:
-    workers = max(1, int(check_cfg.get('workers') or 16))
-    kept, dropped = [], []
-    total = len(channels)
-    logger.info(f'[live_source] 开始测活，共 {total} 条，并发 {workers}')
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_check_one, c, check_cfg): c for c in channels}
-        done = 0
-        for future in as_completed(futures):
-            c = futures[future]
-            done += 1
-            try:
-                ok = future.result()
-            except Exception:  # noqa
-                ok = False
-            (kept if ok else dropped).append(c)
-            if done % 100 == 0:
-                logger.info(f'[live_source] 测活进度 {done}/{total}，存活 {len(kept)}')
-    # 保持原顺序
-    order = {id(c): i for i, c in enumerate(channels)}
-    kept.sort(key=lambda c: order[id(c)])
+    from tasks import live_health
+    kept, dropped, _stats = live_health.check_channels(channels, {'check': check_cfg})
     return kept, dropped
+
+
+def _dedupe_urls(channels: list) -> list:
+    """只按 URL 去重，不做频道取舍。放在测活前，纯粹为了少发请求。"""
+    seen, result = set(), []
+    for c in channels:
+        url = c.get('url')
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        result.append(c)
+    return result
 
 
 # --------------------------------------------------------------------------- #
 # 输出
 # --------------------------------------------------------------------------- #
+def _merge_previous_ok(channels: list, out_cfg: dict, cfg: dict, live_health) -> list:
+    """把上一份 m3u 里“台账没说死”的线路并回来。
+
+    上游快照抖动（同一批源几十分钟内换掉大部分 IP）时，一次聚合可能把可用清单砍掉一大半。
+    回补的线路会在下一轮 live_check（≤ 6h）里复验：真死的自然被剔掉，不用靠人扫。
+    已判 dead 的线路绝不回补，避免又把死线塞回去。
+    """
+    m3u_path = FILES_DIR / (out_cfg.get('m3u') or 'm3u/live_merged.m3u')
+    if not m3u_path.exists():
+        return channels
+    prev = live_health.parse_m3u_channels(m3u_path.read_text(encoding='utf-8'))
+    if not prev:
+        return channels
+    entries = (live_health.load_ledger(cfg) or {}).get('entries') or {}
+    have = {ch['url'] for ch in channels}
+    base_order = max([int(c.get('order') or 0) for c in channels] or [0]) + 1
+    merged = []
+    for ch in prev:
+        url = ch.get('url') or ''
+        if not url or url in have:
+            continue
+        entry = entries.get(live_health.url_key(url, cfg)) or {}
+        if entry.get('state') == 'dead':
+            continue
+        name = ch.get('name') or '未命名频道'
+        merged.append({
+            'name': name,
+            'tvg_id': '',
+            'tvg_name': name,
+            'logo': '',
+            'group': ch.get('group') or '其他',
+            'url': url,
+            'source': 'prev-m3u',
+            'priority': 900,          # 排在本轮新测活的线路后面，当备线
+            'order': base_order + len(merged),
+        })
+        have.add(url)
+    if not merged:
+        return channels
+    logger.warning(f'[live_source] 本轮结果 {len(channels)} 条，上一份 {len(prev)} 条：'
+                   f'回补未被判死的 {len(merged)} 条，交给下一轮 live_check 复验')
+    return channels + merged
+
+
 def _render_m3u(channels: list, epg: str) -> str:
     lines = ['#EXTM3U']
     if epg:
@@ -561,8 +585,13 @@ def _render_m3u(channels: list, epg: str) -> str:
     return '\n'.join(lines) + '\n'
 
 
-def _write_atomic(path: Path, content: str) -> None:
+def _write_atomic(path: Path, content: str, backup: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if backup and path.exists():
+        try:
+            path.with_name(path.name + '.bak').write_bytes(path.read_bytes())
+        except Exception:  # noqa
+            pass
     tmp = path.with_name(path.name + '.tmp')
     with tmp.open('w', encoding='utf-8', newline='\n') as f:
         f.write(content)
@@ -834,26 +863,71 @@ def run(config_path: Path = CONFIG_PATH) -> dict:
         filled = _backfill_logos(all_channels)
         logger.info(f'[live_source] 跨源补台标 {filled} 条')
 
-    dedupe_cfg = dict(cfg.get('check') or {})
-    dedupe_cfg.update(cfg.get('dedupe') or {})
-    channels = _dedupe(all_channels, dedupe_cfg)
+    # 顺序很重要：先测活，再按频道去重。
+    # 反过来的话「每台只留 1 条」就没备线可换，主线路一死整台就消失。
+    candidates = _dedupe_urls(all_channels)
+    channels = candidates
+    dropped = []
+    health_stats = {'enabled': False}
+    if (cfg.get('check') or {}).get('enabled'):
+        from tasks import live_health
+        # 与 live_check 共用一把锁：两轮测活同时跑会把失败次数重复累加，瞬间把好线判死
+        _lock = live_health.acquire_check_lock(cfg)
+        if _lock is None:
+            raise RuntimeError('另一轮测活（live_check）正在运行，本次聚合放弃，避免重复累加失败次数')
+        try:
+            channels, dropped, health_stats = live_health.check_channels(candidates, cfg)
+        finally:
+            live_health.release_check_lock(_lock)
+        logger.info(f'[live_source] 测活后保留 {len(channels)} 条，剔除 {len(dropped)} 条')
+        # 大面积判死守卫：手机/家用宽带很容易因为并发探测把网络打满而“假死”。
+        # 这里抽 20 条被判死的线慢速单测一遍，如果过半能通，就认定本轮是本机网络问题，
+        # 直接中止，不用这份残缺结果覆盖上一份 m3u。
+        max_ratio = float((live_health.health_cfg(cfg) or {}).get('max_drop_ratio') or 0)
+        total_checked = len(candidates) or 1
+        ratio = len(dropped) / total_checked
+        if max_ratio > 0 and len(candidates) >= 20 and ratio > max_ratio:
+            sample = random.sample(dropped, min(20, len(dropped)))
+            alive = 0
+            for ch in sample:
+                try:
+                    if live_health.probe(ch['url'], cfg).get('ok'):
+                        alive += 1
+                except Exception:  # noqa
+                    pass
+            logger.warning(f'[live_source] 本轮剔除 {len(dropped)}/{total_checked} = {ratio:.0%} '
+                           f'超过 max_drop_ratio={max_ratio:.0%}，慢速复核样本 {len(sample)} 条中 '
+                           f'{alive} 条还能通')
+            if alive * 2 >= len(sample):
+                raise RuntimeError(
+                    f'测活结果异常：剔除率 {ratio:.0%}，但复核样本 {alive}/{len(sample)} 条可播放，'
+                    f'判定为本机网络/并发问题，中止本次聚合，不覆盖已有 m3u')
+
+    channels = _dedupe(channels, cfg.get('dedupe') or {})
     deduped_count = len(channels)
+    dropped_count = len(dropped)
     logger.info(f'[live_source] 去重后 {len(channels)} 条（原始 {raw_count} 条）')
 
-    dropped_count = 0
-    if (cfg.get('check') or {}).get('enabled'):
-        channels, dropped = _check_channels(channels, cfg['check'])
-        dropped_count = len(dropped)
-        logger.info(f'[live_source] 测活后保留 {len(channels)} 条，剔除 {dropped_count} 条')
-
     out_cfg = cfg.get('output') or {}
-    # 防止某次只成功一两个源时，用残缺列表把上一份好数据覆盖掉
+    # 防止某次只成功一两个源时，用残缺列表把上一份好数据覆盖掉。
+    # 默认只告警照写（保留 .bak），因为「少而死」比「多但全死」好；需要严格拦截时配 abort。
     min_final_count = int(out_cfg.get('min_final_count') or 0)
     if min_final_count and len(channels) < min_final_count:
-        raise RuntimeError(
-            f'聚合结果只有 {len(channels)} 条，低于 output.min_final_count={min_final_count}，'
-            f'不覆盖 {out_cfg.get("m3u") or "m3u/live_merged.m3u"}；失败源: {errors}'
+        msg = (
+            f'聚合结果只有 {len(channels)} 条，低于 output.min_final_count={min_final_count}；'
+            f'失败源: {errors}'
         )
+        if str(out_cfg.get('min_final_count_action') or 'warn').lower() == 'abort':
+            raise RuntimeError(msg + f'，不覆盖 {out_cfg.get("m3u") or "m3u/live_merged.m3u"}')
+        logger.warning(f'[live_source] {msg}（照常写入，旧文件已备份为 .bak）')
+
+    # 第二道守卫：缩水太多时，把上一份 m3u 里没被判死的线路并回来（详见 _merge_previous_ok）
+    if (cfg.get('check') or {}).get('enabled'):
+        try:
+            from tasks import live_health as _lh
+            channels = _merge_previous_ok(channels, out_cfg, cfg, _lh)
+        except Exception as e:  # noqa
+            logger.warning(f'[live_source] 回补上一份 m3u 失败（忽略）: {e}')
 
     # 台标本地缓存：下载失败保留原 URL，不影响播放
     logo_stats = _cache_logos(channels, cfg, req_cfg)
@@ -864,8 +938,17 @@ def run(config_path: Path = CONFIG_PATH) -> dict:
     content = _render_m3u(channels, epg_url)
 
     out_m3u = FILES_DIR / (out_cfg.get('m3u') or 'm3u/live_merged.m3u')
-    _write_atomic(out_m3u, content)
+    _write_atomic(out_m3u, content, backup=True)
     logger.info(f'[live_source] 已写入 {out_m3u}')
+
+    # 被剔除线路清单，方便人工核查「剔得对不对」
+    if health_stats.get('enabled') and not health_stats.get('degraded'):
+        try:
+            from tasks import live_health
+            report = live_health.write_dead_report(cfg, live_health.load_ledger(cfg))
+            logger.info(f'[live_source] 死链清单已更新 {report}')
+        except Exception as e:  # noqa
+            logger.warning(f'[live_source] 写死链清单失败: {e}')
 
     if out_cfg.get('mirror_local_txt', True) and out_cfg.get('local_txt'):
         local_txt = FILES_DIR / out_cfg['local_txt']
@@ -898,8 +981,11 @@ def run(config_path: Path = CONFIG_PATH) -> dict:
         'deduped_count': deduped_count,
         'final_count': len(channels),
         'removed_count': raw_count - len(channels),
-        'dropped_by_dedupe': raw_count - deduped_count,
+        'dropped_by_dedupe': max(0, len(candidates) - dropped_count - len(channels)),
+        'dropped_by_url_dup': raw_count - len(candidates),
         'dropped_by_check': dropped_count,
+        'health_check': {k: v for k, v in (health_stats or {}).items() if k != 'detail'},
+        'dropped_detail': (health_stats or {}).get('detail') or [],
         'groups': groups,
         'sources': source_stats,
         'logo_cache': logo_stats,
@@ -921,6 +1007,10 @@ def main(task_id='live_source', *args, config_path=None, **kwargs):
             f'直播源聚合完成: 原始{meta["raw_count"]}条 -> 最终{meta["final_count"]}条'
             f'，测活剔除{meta["dropped_by_check"]}条'
         )
+        if meta.get('health_check', {}).get('probed'):
+            result += (f'（探测{meta["health_check"]["probed"]}条，'
+                       f'熔断host {len(meta["health_check"].get("dead_hosts") or [])} 个，'
+                       f'续期{meta["health_check"].get("renewed", 0)}条）')
         if meta['errors']:
             result += f'；失败源: {"; ".join(meta["errors"])}'
         logger.info(f'[live_source] {result}')

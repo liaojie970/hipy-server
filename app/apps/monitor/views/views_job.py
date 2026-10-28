@@ -49,7 +49,7 @@ def get_no_store_res():
         schedules.append(
             {"job_id": job.id, "job_name": job.name, "func_name": job.func_ref, "func_args": job.args,
              "cron_model": str(job.trigger), "coalesce": job.coalesce,
-             "next_run": job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+             "next_run": job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None
              }
         )
     res = {'results': schedules, 'total': len(schedules)}
@@ -108,7 +108,7 @@ def get_no_store_detail(job_id):
     else:
         res = {"job_id": job.id, "job_name": job.name, "func_name": job.func_ref, "func_args": job.args,
                "cron_model": str(job.trigger), "coalesce": job.coalesce,
-               "next_run": job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+               "next_run": job.next_run_time.strftime("%Y-%m-%d %H:%M:%S") if job.next_run_time else None
                }
     return res
 
@@ -132,7 +132,13 @@ async def addRecord(*,
                     u: Users = Depends(deps.user_perm([f"{access_name}:post"])),
                     obj: job_schemas.JobSchema,
                     ):
-    job_id, error = create_no_store_job(obj)
+    try:
+        job_id, error = create_no_store_job(obj)
+    except Exception as e:
+        # 不能把异常直接抛给前端（只会变成一个没有头绪的 500），转成能看的错误信息
+        logger.exception(f'创建定时任务失败: func={obj.func_name} cron={obj.cron_expression} -> {e}')
+        return respErrorJson(error_code.ERROR_TASK_INVALID.set_msg(
+            f'创建任务失败: {e}（检查 func_name 能否 import、cron 是否合法）'))
     if error:
         return respErrorJson(error=error)
     try:
@@ -235,7 +241,11 @@ async def setRecord(*,
     except Exception as e:
         logger.info(f'修改定时任务调度发生错误:{e}')
 
-    job_id, error = create_no_store_job(obj)
+    try:
+        job_id, error = create_no_store_job(obj)
+    except Exception as e:
+        logger.exception(f'修改定时任务失败: func={obj.func_name} cron={obj.cron_expression} -> {e}')
+        return respErrorJson(error_code.ERROR_TASK_INVALID.set_msg(f'修改任务失败: {e}'))
     if error:
         return respErrorJson(error=error)
     try:
@@ -245,7 +255,24 @@ async def setRecord(*,
     except Exception as e:
         logger.info(f'改变任务状态发生错误:{e}')
     del obj.server_restart
-    curd.update(db, _id=_id, obj_in=obj, modifier_id=u['id'])
+    # next_run 可能仍是字符串（server_restart=true 时 create_no_store_job 不会转 datetime），
+    # 直接存库会抛 "SQLite DateTime type only accepts Python datetime"，表现为修改任务 500。
+    # 这里统一以调度器里的真实 next_run_time 为准回写。
+    try:
+        real_job = query_job_id(str(obj.job_id)) if obj.job_id else None
+        if real_job is not None and getattr(real_job, 'next_run_time', None):
+            obj.next_run = real_job.next_run_time.replace(tzinfo=None)
+        elif isinstance(obj.next_run, str):
+            from datetime import datetime as _dt
+            obj.next_run = _dt.strptime(obj.next_run, '%Y-%m-%d %H:%M:%S')
+    except Exception as e:  # noqa
+        logger.info(f'回写下次执行时间失败(忽略):{e}')
+        obj.next_run = None
+    try:
+        curd.update(db, _id=_id, obj_in=obj, modifier_id=u['id'])
+    except Exception as e:
+        logger.exception(f'更新定时任务失败: id={_id} -> {e}')
+        return respErrorJson(error_code.ERROR_TASK_INVALID.set_msg(f'更新任务失败: {e}'))
     return respSuccessJson()
 
 

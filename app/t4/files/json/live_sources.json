@@ -5,7 +5,8 @@
     "local_txt": "txt/mytv.txt",
     "meta": "json/live_merged_meta.json",
     "mirror_local_txt": false,
-    "min_final_count": 100
+    "min_final_count": 100,
+    "min_final_count_action": "warn"
   },
   "epg": "https://live.fanmingming.cn/e.xml",
   "epg_cache": {
@@ -52,13 +53,34 @@
     "direct_fallback": true
   },
   "check": {
-    "enabled": false,
-    "timeout": 6,
-    "workers": 16,
-    "keep_untestable": true
+    "enabled": true,
+    "deep": true,
+    "timeout": 10,
+    "workers": 8,
+    "keep_untestable": true,
+    "keep_suspect": true,
+    "host_sample": 3,
+    "host_breaker": true,
+    "probe_per_batch": 2,
+    "segment_bytes": 1,
+    "renew_by_redirect": false,
+    "auth_params": [
+      "Authinfo",
+      "authinfo",
+      "authInfo",
+      "token",
+      "access_token",
+      "accesstoken",
+      "authid",
+      "sign",
+      "signature",
+      "expires",
+      "expire"
+    ],
+    "batch_lcp_min": 12
   },
   "dedupe": {
-    "max_per_name": 1,
+    "max_per_name": 3,
     "dedupe_url": true
   },
   "group_order": [
@@ -236,5 +258,15 @@
       "note": "iptv-org 全球主列表，2000+ 频道，带台标，体积很大。默认关闭，只建议在确实需要全球频道时临时开启。",
       "timeout": 40
     }
-  ]
+  ],
+  "health": {
+    "enabled": true,
+    "file": "json/live_health.json",
+    "dead_report": "json/live_dead_report.json",
+    "dead_after_hard": 2,
+    "dead_after_soft": 3,
+    "cooldown_hours": 24,
+    "history_days": 30,
+    "max_drop_ratio": 0.5
+  }
 }

@@ -106,8 +106,10 @@ def vod_generate(*, api: str = "", request: Request,
     # 拼接字符串得到t4_api本地代理接口地址
     api_url = str(request.url).split('?')[0]
 
-    t4_api = f'{api_url}?proxy=true&do=py'
-    t4_js_api = f'{api_url}?proxy=true&do=js'
+    # 代理请求也要带上 sub，否则会被订阅校验拦截
+    proxy_sub = quote(sub or '')
+    t4_api = f'{api_url}?proxy=true&do=py&sub={proxy_sub}'
+    t4_js_api = f'{api_url}?proxy=true&do=js&sub={proxy_sub}'
     # 获取请求类型
     req_method = request.method.lower()
 
@@ -196,6 +198,9 @@ def vod_generate(*, api: str = "", request: Request,
             API_STORE[api][extend_store] = {'vod': vod, 'time': get_now()}
         else:
             vod = API_STORE[api][extend_store]['vod']
+        # 每次请求刷新本地代理地址，避免多地址访问时缓存了旧 host
+        if hasattr(vod, 't4_api'):
+            vod.t4_api = t4_api
 
     except Exception as e:
         return respErrorJson(error_code.ERROR_INTERNAL.set_msg(f"内部服务器错误:{e}"))

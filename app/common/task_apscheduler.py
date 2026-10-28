@@ -34,16 +34,64 @@ def _sniffer_on_success(job_id):
     _sniffer_fail_count.pop(job_id, None)
 
 
+def _defer_remove(job_id):
+    """安全地把任务从调度器里拿掉。
+
+    绝对不能在本函数的调用方（job listener，运行在 APScheduler 的 _process_jobs 内部）里
+    直接 scheduler.remove_job()：listener 跑完之后 APScheduler 还要对刚执行完的那个 job 做
+    jobstore.update_job()，此时 job 已被删 → JobLookupError 会把整个 wakeup 打断，
+    结果是「调度器静默罢工」：next_run_time 停住不动、所有定时任务再也不执行。
+
+    这里的做法：先把 next_run_time 置空（保证不会再到期），再把删除动作丢到事件循环的下一个
+    tick 去执行。
+    """
+    job_id = str(job_id)
+    try:
+        job = scheduler.get_job(job_id)
+        if job is not None:
+            job.next_run_time = None
+    except Exception:  # noqa
+        pass
+    try:
+        loop = getattr(scheduler, '_eventloop', None)
+        if loop is not None:
+            loop.call_soon_threadsafe(_safe_remove_job, job_id)
+            return
+    except Exception:  # noqa
+        pass
+    _safe_remove_job(job_id)
+
+
+def _safe_remove_job(job_id):
+    try:
+        scheduler.remove_job(str(job_id))
+    except Exception:  # noqa
+        pass
+
+
 def _sniffer_on_failure(job_id):
     count = _sniffer_fail_count.get(job_id, 0) + 1
     _sniffer_fail_count[job_id] = count
     if count >= SNIFFER_RETRY_LIMIT:
-        del_job(SNIFFER_JOB_ID)
+        _defer_remove(SNIFFER_JOB_ID)
         _sniffer_fail_count.pop(job_id, None)
         logger.info('---嗅探器激活连续失败%s次, 已停止自动重试(仅本次启动)---', SNIFFER_RETRY_LIMIT)
 
 
 def job_listener(Event):
+    """APScheduler 事件回调。
+
+    注意：这个函数是在 APScheduler 的 _process_jobs 里被调用的，往外面抛异常会直接把
+    整个调度循环打断（历史 bug：删任务抛 JobLookupError 后所有定时任务不再执行），
+    所以不管内部发生什么都不能让异常逃出去。
+    """
+    try:
+        _job_listener_impl(Event)
+    except Exception as e:  # noqa
+        logger.exception(f'---定时任务事件处理失败(已忽略, 不影响调度): {e}---')
+
+
+def _job_listener_impl(Event):
     job = scheduler.get_job(Event.job_id)
     db = next(get_db())  # type: SessionLocal
     if job:
@@ -68,12 +116,12 @@ def job_listener(Event):
             obj_in = {'job_name': job.name, 'run_time': Event.scheduled_run_time, 'run_status': 1,
                       'run_info': f'{Event.retval}'}
             if Event.retval and ('激活成功' in Event.retval or '传入的url不合法' in Event.retval):
-                del_job(obj_in['job_name'])
+                _defer_remove(obj_in['job_name'])
                 logger.info('---嗅探器已激活---')
                 if is_sniffer:
                     _sniffer_on_success(Event.job_id)
             elif Event.retval and '无法激活' in Event.retval:
-                del_job(obj_in['job_name'])
+                _defer_remove(obj_in['job_name'])
                 logger.info('---嗅探器无法激活,缺少playwright---')
                 if is_sniffer:
                     _sniffer_on_success(Event.job_id)
@@ -188,7 +236,11 @@ def del_job(job_id):
     :param job_id: 任务id
     :return:
     '''
-    scheduler.remove_job(str(job_id))
+    try:
+        scheduler.remove_job(str(job_id))
+    except Exception:  # noqa
+        # 任务可能已被移除/从未注册，删除时不该 500
+        pass
 
 
 def modify_job(func_name=None, args=None, kwargs=None, id=None, name=None, next_run_time=None, coalesce=False,

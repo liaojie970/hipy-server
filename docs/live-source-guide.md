@@ -196,8 +196,10 @@ http://<服务器局域网IP>:5707/config/1?sub=<订阅码>   # 1 = T3
 > 建好后可以先点「执行一次」验证，再打开「使用中」；`active=True` 的任务在后端重启时会按 `next_run`
 > 续跑，`next_run` 已过期则约 10 秒后补跑一次，之后才按 cron 执行。
 
-> 旧的 `tv_spider` 任务（每 4 小时写 `txt/mytv.txt`）如果还在跑，和本任务默认不冲突；
-> 只有你打开了 `mirror_local_txt` 时两者才会抢同一个文件，此时停用其中一个即可。
+> 旧的 `tv_spider` 任务（`tasks.tv_spider.main`，现在改成**每天 03:45 跑一次**）默认**不再写** `txt/mytv.txt`：
+> 直播页读的是 `m3u/live_merged.m3u`。它的行为由 `t4/files/json/tv_spider.json` 控制：
+> `write_mytv=false`（默认不动 mytv.txt）、`min_lines` 不达标或拉取失败时**保留旧文件**、
+> `drop_auth_urls=true` 剔除带 `Authinfo/token` 的线路。真要恢复旧行为，把 `write_mytv` 改回 `true`。
 
 ## 四、源清单字段
 
@@ -209,7 +211,8 @@ http://<服务器局域网IP>:5707/config/1?sub=<订阅码>   # 1 = T3
 | `output.local_txt` | 兼容旧配置的镜像路径；配合 `mirror_local_txt` 使用 |
 | `output.meta` | 统计信息输出路径 |
 | `output.mirror_local_txt` | 是否额外写 `local_txt` 镜像；默认 `false` |
-| `output.min_final_count` | 最终条数低于该值时不覆盖旧 m3u；默认 100，设为 0 关闭 |
+| `output.min_final_count` | 最终条数低于该值时的处理阈值；默认 100（语义见 `min_final_count_action`） |
+| `output.min_final_count_action` | 条数不达标时的动作：`warn`（默认，告警但照写，旧文件留 `.bak`）/ `abort`（抛错不覆盖） |
 | `epg` | 写进 `#EXTM3U x-tvg-url="..."` 的 EPG 地址；开启 `epg_cache` 后会改成本地地址 |
 | `epg_cache` | XMLTV 本地缓存与 `/epg` 索引配置，见第六节 |
 | `logo.backfill_from_sources` | 是否用已带台标的源给缺台标的条目补 logo |
@@ -219,10 +222,17 @@ http://<服务器局域网IP>:5707/config/1?sub=<订阅码>   # 1 = T3
 | `request.retries` | 每个地址的重试次数 |
 | `request.github_proxies` | GitHub raw 加速前缀列表，按顺序尝试；留空则直连。兼容旧字段 `github_proxy`（单个前缀） |
 | `request.direct_fallback` | 系统代理失败后是否强制直连再试 |
-| `check.enabled` | 是否并发测活；默认关闭 |
-| `check.workers` / `check.timeout` | 测活并发数与单条超时 |
+| `check.enabled` | 是否测活；默认开启（深度测活，见下文「测活与死线剔除」） |
+| `check.deep` | 是否做深度校验：拉播放列表 + 校验 `#EXTM3U` + 拉首个分片；`false` 则只看状态码 |
+| `check.workers` / `check.timeout` / `check.connect_timeout` | 测活并发数、读超时、连接超时（秒） |
+| `check.segment_bytes` | 深度校验时拉取首分片的字节数，默认 1（够判断是否可播且几乎不耗流量） |
 | `check.keep_untestable` | `rtmp/rtp/udp` 等无法用 HTTP 测活的协议是否保留 |
-| `dedupe.max_per_name` | 每个频道最多保留几个地址；默认 1 |
+| `check.keep_suspect` | 首次失败（未达判死阈值）的线路是否仍输出；默认 `true` |
+| `check.host_sample` / `check.host_breaker` | 每个 host 先抽几条探测、抽样结果全是「整机不可达」时整批熔断（省时间；404/403 不熔断） |
+| `check.probe_per_batch` / `check.batch_lcp_min` | 同一张票（host+mac+token 公共前缀）的线路合并成批次后抽几条探测 |
+| `check.renew_by_redirect` | 是否尝试用 302 拿新 `Authinfo` 续期；默认 `false` |
+| `health.*` | 台账与判死参数：`file`/`dead_report`/`dead_after_hard`/`dead_after_soft`/`cooldown_hours`/`history_days` |
+| `dedupe.max_per_name` | 每个频道最多保留几个地址；默认 3（给播放端留换线备线） |
 | `dedupe.dedupe_url` | 是否按 URL 再去重一次 |
 | `group_order` | 输出时的分组顺序；未列出的分组排在最后 |
 | `group_map` | 分组重命名，例如把 Tvlist 的 `WZYTV` 映射成 `央视` |
@@ -340,15 +350,110 @@ IPv6 源只有在播放端网络支持 IPv6 时才有意义。
 {
   "check": {
     "enabled": true,
-    "timeout": 6,
+    "deep": true,
+    "timeout": 8,
     "workers": 16,
     "keep_untestable": true
   }
 }
 ```
 
-> 测活会逐条发 HTTP 请求。5000 条的大合集 + 16 并发也要几分钟，建议只在启用大合集时打开，
-> 或者单独为某个源配置 `"check": true`（目前是全局开关，后续可扩展为源级开关）。
+> 测活会逐条发 HTTP 请求。390 条线路 + 深度校验 + 16 并发约 3 分钟，可以接受；
+> 5000 条的大合集请配合 `host_breaker` 和 `dedupe.max_per_name=1`，或只给个别源打开。
+
+### 测活与死线剔除（live_health）
+
+老的测活只看 `status_code < 400`，这有两个问题：状态码 200 但内容是错误页的线路会漏过；
+失败一次就永久剔除，网络抖一下就误杀。现在改成「三级校验 + 台账 + 软删除」。
+
+**三级校验**（`check.deep=true`）
+
+1. 拉播放列表，要求 HTTP 200；
+2. body 里必须出现 `#EXTM3U` / `#EXTINF`（挡掉「200 的错误页」）；
+3. 拉第一个分片（默认只取 1 字节）确认 200 且非空；是 master playlist 的话会先下钻一层。
+
+**失败定性**
+
+| kind | 含义 | 判死阈值 |
+| --- | --- | --- |
+| `ok` | 三级全过 | - |
+| `auth_expired` | 票过期：带票失败，无票请求正常（主机还活着） | 1 次 |
+| `source_gone` | 源下线：带票/乱票/无票结果一样 | `dead_after_hard`（默认 2 次） |
+| `unreachable` | 超时 / 502 / SSL 等网络类失败 | `dead_after_soft`（默认 3 次） |
+| `segment_failed` / `http_error` | 分片拉不到 / 其他 4xx | `dead_after_hard` |
+| `untestable` | rtmp/udp 等，按 `keep_untestable` 处理 | - |
+
+网络类阈值放宽到 3 次，就是为了避免「家里 Wi-Fi 抖一下，一晚上剔掉半个台」这种事故。
+
+**状态机（软删除）**
+
+```
+ok --(失败 1 次)--> suspect（仍输出，播放端无感）
+   --(再失败)--> dead（不输出，进入 cooldown_hours 冷却）
+   --(冷却 24h 到)--> suspect（自动复测，好了就回 ok）
+```
+
+也就是「第一次失败不删、只记一笔」，连续失败才真删；删掉的还会自动复测。
+
+> 复测发生在**每天的 `live_source` 重建**里：它每次都重新拉开上游的全部线路，冷却到期的会被重新测一遍，
+> 好了就自动回到 `ok`。`live_check` 只复查 m3u 里现存的线路，所以别把它当成「把死台找回来」的任务。
+
+**台账**
+
+- 文件：`t4/files/json/live_health.json`（默认，已 `.gitignore`），按**归一化 URL**（剔除 auth 参数）记录
+  `first_seen` / `last_ok` / `fail_count` / `consec_fail` / `state` / `cooldown_until` / `last_kind`；
+- 死链清单：`t4/files/json/live_dead_report.json`，方便直接看「哪些台、为什么没了」；
+- **保命规则**：台账读坏或缺失 → 整体降级为「全放行」，绝不会因为台账丢了把直播搞挂。
+
+**同票折叠与 host 熔断**
+
+- 像 `58.248.112.205` 那种「同一张会话票 + 每频道不同后缀」的源，按 host+mac+token 公共前缀折叠成一个批次，
+  只抽 `probe_per_batch` 条探测；批次代表全灭时整批沿用结论（票过期/主机下线本来就是整批一起死）；
+- host 熔断：某 host 抽样 `host_sample` 条**全是「整机不可达」**（超时 / 连接失败 / 5xx / SSL）就直接熔断，不再逐条等超时；
+  `404`/`403`/`401` **不参与熔断**——那代表服务器还活着、只是这条路径没了，别的路径可能还能播，必须逐条判。
+  > 实测 390 条里有 181 条集中在 3 个死 host 上，熔断后测活时间从几分钟降到几十秒；
+  > 但一开始把 404 也算进熔断，误杀了 2 条能播的线路，改成只认「整机不可达」后恢复。
+- 分片校验先用 `Range: bytes=0-N` 取 1 字节；个别 CDN（Akamai 系）对 `bytes=0-0` 会回 `206` + **空体**或 `416`，
+  这时会自动去掉 `Range` 再取一次，避免把能播的线路判成分片失败。
+
+**可选的 token 续期**（默认关）
+
+把 `check.renew_by_redirect` 设为 `true` 后，失败的带票线路会去掉 `Authinfo` 重放一次，
+如果服务端 302 且 `Location` 里带新票，就自动替换成新 URL 继续用。
+注意：实测 `58.248.112.205:8006` 那批票是「源整台下线」而非过期，重放也拿不到新票，所以默认关闭。
+
+**手动验证 / 单跑**
+
+```bash
+cd app
+python -m tasks.live_health --stats                    # 看台账统计（存活/疑似/已死/host 分布）
+python -m tasks.live_health --dry-run --limit 60        # 预演：1 次失败就算「会被剔除」，不写台账
+python -m tasks.live_health --dry-run                  # 全量预演
+python -m tasks.live_health --recheck --dry-run        # 预演：复查现有 m3u 会删掉哪些
+python -m tasks.live_health --recheck                  # 真删：剔死链 + 回写 meta + 留 .bak
+```
+
+> 一定要在**部署机（手机）自己的网络**里验证。用电脑/境外网络跑，`502`、`超时` 都可能是代理造成的，
+> 只有 `404` 可信。
+
+**两个任务怎么分工**
+
+| 任务 | 函数 | 建议 cron | 干什么 |
+| --- | --- | --- | --- |
+| `live_source` | `tasks.live_source.main` | `0 30 3 * * ?` | 重新拉上游 → 测活 → 去重 → 重建 m3u |
+| `live_check` | `tasks.live_health.main` | `0 0 0/6 * * ?` | 不拉上游，只复查现有 m3u，按台账剔掉新死的线路 |
+
+`live_check` 用迁移脚本注册（幂等，可重复跑）：
+
+```bash
+cd app
+python db/migrate_live_health.py                 # 注册/更新，默认每 6 小时
+python db/migrate_live_health.py --cron "0 0 0/3 * * ?"   # 例：每 3 小时复查一次
+python db/migrate_live_health.py --disable       # 只暂停，不删除
+```
+
+> 为什么要拆开：重建要拉上游（慢、依赖源站），复查只需要测现有线路（快）。
+> 上游挂了或者暂时不想重建时，可以单独把 `live_source` 停掉，`live_check` 继续守着现有 m3u。
 
 ### 台标怎么来的
 
@@ -454,6 +559,37 @@ curl 'http://127.0.0.1:5707/epg?ch=CCTV-1%20%E7%BB%BC%E5%90%88&date=2026-10-22'
 | `/epg` 返回 302 | 说明该频道不在 `epg_index.json` 里，正在回退上游。确认 `epg_cache.enabled=true` 且最近跑过聚合任务；再看索引的 `channel_count`。 |
 | m3u 里还是 `{{host}}` | 说明是直接读文件，不是通过 `/files/m3u/xxx.m3u` 访问。用 HTTP 地址访问，或让播放端走 `/config` 生成的 `lives.url`。 |
 | 任务跑完但没变化 | 检查定时的 `func_name` 是否为 `tasks.live_source.main`，以及任务是否处于「启动」状态；看后台任务日志的返回值。 |
+| 页面能打开、但登录/所有接口一直转圈 | 后端「假死」：主进程已退出，但 APScheduler 进程池 fork 出的子进程还攥着监听 socket，端口继续 LISTEN 却没人 accept。`curl -m 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5707/docs` 不是 200 就是它。直接 `bash start_all.sh`（或 `_restart.sh`）重启；`pkill -f "python main.py"` 会把孤儿一起带走。 |
+| 一轮复查/聚合把线路砍掉一大半 | 多半是本机网络被打满（并发探测）或两轮测活同时跑，把失败次数重复累加。已内置守卫：`json/.live_check.lock` 文件锁保证同时只有一轮在跑；`health.max_drop_ratio`（默认 0.5）超过就判定本机网络异常，`live_check` 回滚台账、`live_source` 抽样慢速复核后中止，都不覆盖已有 m3u。 |
+
+### 7.1 后端「假死」是怎么来的（手机部署必读）
+
+`app/common/sys_schedule.py` 默认用 `ProcessPoolExecutor` 跑定时任务。每次任务都会 `fork` 一个
+整份应用的子进程（手机上约 100MB），而 **fork 会把 uvicorn 的监听 socket 一起继承过去**。一旦
+主进程被系统回收，这些僵尸子进程还攥着 5707：端口继续 LISTEN、连接全堆在 backlog，但再也没有
+人 accept —— 表现就是「静态页秒开、所有 API 超时、日志一行不写」。
+
+两个缓解措施（都已在手机 `.env` 里生效）：
+
+```ini
+# 定时任务改用线程池：不 fork、不继承端口、不多占内存
+SCHEDULER_EXECUTOR=thread
+SCHEDULER_POOL_SIZE=4
+```
+
+- 想恢复旧的进程池行为，把 `SCHEDULER_EXECUTOR` 删掉或设为 `process` 即可（PC 端默认仍是进程池）；
+- 另配了看门狗 `_watchdog.sh`：每分钟探一次 `/docs`，连续 3 次不通就重启后端；另外所有任务的下次执行时间都过期 15 分钟以上（调度器罢工）时也会重启。`start_all.sh` 会自动拉起它。
+
+> 同类的另一个坑（会让人误以为「定时任务全坏了」）：在 APScheduler 的事件回调里直接 `remove_job`，本轮末尾它还要 `update_job` 那个已删的任务，抛 `JobLookupError` 会把整个调度循环打断 —— 之后网页和接口都正常，但所有定时任务永远不再执行、`next_run` 冻结在中断时刻。已改为延迟删除 + 事件回调兜异常。
+
+### 7.2 测活的并发与守卫
+
+| 参数 | 作用 |
+| --- | --- |
+| `check.workers` | 测活并发。手机上默认降到 8（原 16），避免把家用宽带上行打满造成大面积误判。 |
+| `check.timeout` | 单条超时，手机上放宽到 10s。 |
+| `health.max_drop_ratio` | 单轮剔除比例上限（默认 0.5）。超过就认为「本机网络异常」而不是「线路全死」。 |
+| `json/.live_check.lock` | 文件锁，`live_source` 和 `live_check` 共用，保证同一时刻只有一轮测活。 |
 
 ## 八、为什么不把 Tvlist / iptv-org 全量导入
 
@@ -474,9 +610,18 @@ curl 'http://127.0.0.1:5707/epg?ch=CCTV-1%20%E7%BB%BC%E5%90%88&date=2026-10-22'
 | --- | --- |
 | `app/t4/files/json/live_sources.json` | 直播源清单与聚合参数 |
 | `app/tasks/live_source.py` | 下载、解析、去重、补台标、缓存台标/EPG、测活、输出 |
+| `app/tasks/live_health.py` | 三级测活 + 台账 + 软删状态机 + 同票折叠 + host 熔断；`live_check` 任务本体 |
+| `app/common/sys_schedule.py` | 定时任务调度器；`SCHEDULER_EXECUTOR=process/thread` 决定用进程池还是线程池 |
+| `_watchdog.sh`（`~/hipy/`） | 后端探活看门狗：/docs 连续 3 次不通就重启后端，`start_all.sh` 自动拉起 |
+| `app/tasks/tv_spider.py` | 旧 TV 源抓取；行为由 `t4/files/json/tv_spider.json` 控制（默认不写 mytv.txt） |
+| `app/db/migrate_live_source.py` | 注册 `live_source` 定时任务（幂等） |
+| `app/db/migrate_live_health.py` | 注册 `live_check` 定时任务（幂等） |
 | `app/utils/live_epg.py` | 频道名归一化；任务建索引和 `/epg` 查索引共用同一套规则 |
 | `app/t4/files/m3u/live_merged.m3u` | 聚合产物（运行时生成，已加入 `.gitignore`） |
 | `app/t4/files/m3u/logo/` | 台标缓存（运行时生成，已加入 `.gitignore`） |
+| `app/t4/files/json/live_health.json` | 线路健康台账（运行时生成，已加入 `.gitignore`） |
+| `app/t4/files/json/live_dead_report.json` | 死链清单，含 kind/原因/失败次数（运行时生成） |
+| `app/t4/files/json/tv_spider.json` | `tv_spider` 任务开关（可选，缺省用内置默认值） |
 | `app/t4/files/json/epg_index.json` | `/epg` 使用的频道/节目索引（运行时生成，已加入 `.gitignore`） |
 | `app/t4/files/txt/e.xml` | 裁剪后的 XMLTV（运行时生成，已加入 `.gitignore`） |
 | `app/t4/files/txt/mytv.txt` | 兼容旧配置的镜像产物（仓库已跟踪，但默认不再写入） |

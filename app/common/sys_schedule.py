@@ -4,7 +4,7 @@
 # Author: DaShenHan&道长-----先苦后甜，任凭晚风拂柳颜------
 # Author's Blog: https://blog.csdn.net/qq_32394351
 # Date  : 2023/12/10
-from apscheduler.executors.pool import ProcessPoolExecutor
+from apscheduler.executors.pool import ProcessPoolExecutor, ThreadPoolExecutor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from core.config import settings
@@ -26,6 +26,15 @@ class ScheduleCli(object):
             self.pool_size = max(1, int(getattr(settings, 'SCHEDULER_POOL_SIZE', 10) or 10))
         except (TypeError, ValueError):
             self.pool_size = 10
+        # 执行器类型: process=进程池(默认, 旧行为) / thread=线程池
+        #   进程池每次跑任务都会 fork 子进程, 子进程继承监听 socket 且常驻内存;
+        #   父进程死掉后端口被这些子进程占着但不再 accept -> 整个后端“假死”。
+        #   手机/小内存部署建议 SCHEDULER_EXECUTOR=thread
+        executor_type = str(getattr(settings, 'SCHEDULER_EXECUTOR', 'process') or 'process').strip().lower()
+        if executor_type in ('thread', 'threads', 'threadpool', 'thread_pool'):
+            self.executor_type = 'thread'
+        else:
+            self.executor_type = 'process'
 
     def init_scheduler(self) -> None:
         """
@@ -39,9 +48,11 @@ class ScheduleCli(object):
             # },
             # 配置执行器
             "executors": {
-                # 使用进程池进行调度, 最大进程数默认 10 个
-                # 手机/小内存设备可在 .env 里用 SCHEDULER_POOL_SIZE 调小(如 3)
-                'default': ProcessPoolExecutor(self.pool_size)
+                # 进程池: 每个任务 fork 一个子进程(会继承监听 socket, 小内存设备慎用)
+                # 线程池: 任务在进程内线程里跑, 不 fork, 后端主进程死了端口立刻释放
+                'default': (ThreadPoolExecutor(self.pool_size)
+                            if self.executor_type == 'thread'
+                            else ProcessPoolExecutor(self.pool_size))
             },
             # 创建job时的默认参数
             "job_defaults": {

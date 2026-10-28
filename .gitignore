@@ -40,7 +40,11 @@
 /app/t4/files/txt/e.xml
 /app/t4/files/json/live_merged_meta.json
 /app/t4/files/json/epg_index.json
+/app/t4/files/json/live_health.json
+/app/t4/files/json/live_dead_report.json
 /app/t4/files/**/*.tmp
+/app/t4/files/m3u/*.bak
+/app/t4/files/txt/*.bak
 
 # 手机部署状态(本机记录)
 /.deploy-phone-state.json

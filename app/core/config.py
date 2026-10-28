@@ -139,6 +139,11 @@ class Settings(BaseSettings):
     # 定时任务执行器进程池大小(默认 10)
     #   手机/小内存设备建议设小(如 3), 避免多进程把内存拖死
     SCHEDULER_POOL_SIZE: int = 10
+    # 定时任务执行器类型: process(进程池, 默认) / thread(线程池)
+    #   进程池每跑一次任务就 fork 一个子进程, 子进程会【继承后端监听的 socket】且常驻一份
+    #   应用内存(手机上一份约 100MB): 父进程一旦退出, 端口仍被这些子进程占着却没人 accept,
+    #   表现为“端口在监听但所有请求挂死、日志全无”。小内存/手机部署建议设 thread
+    SCHEDULER_EXECUTOR: str = 'process'
 
     # 博客首页
     BLOG_URL: str = 'https://blog.csdn.net/qq_32394351'
