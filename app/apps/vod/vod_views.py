@@ -47,6 +47,29 @@ API_STORE = {
 API_DICT_LIMIT = 5
 
 
+def _release_vod(vod) -> None:
+    """释放源实例。Drpy 自带常驻线程池 + quickjs 运行时，不回收就是内存/线程泄漏。"""
+    if vod is None:
+        return
+    close = getattr(vod, 'close', None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception as e:  # noqa
+        logger.warning(f'释放源实例失败:{e}')
+
+
+def _release_api_store(api) -> None:
+    """清空某个 api 下的所有源实例（先释放再用 pop，避免丢弃引用后线程池无人回收）"""
+    store = API_STORE.pop(api, None)
+    if not isinstance(store, dict):
+        return
+    for item in list(store.values()):
+        if isinstance(item, dict):
+            _release_vod(item.get('vod'))
+
+
 # u: Users = Depends(deps.user_perm([f"{access_name}:get"]))
 @router.api_route(methods=['GET', 'POST', 'HEAD'], path=api_url + "/{api:path}", summary="生成Vod")
 def vod_generate(*, api: str = "", request: Request,
@@ -150,7 +173,7 @@ def vod_generate(*, api: str = "", request: Request,
 
     # 无法加缓存，不知道怎么回事。多线程访问会报错的
     if is_drpy and nocache and api in API_STORE:
-        del API_STORE[api]
+        _release_api_store(api)
 
     try:
         extend_store = get_md5(extend) if extend else extend
@@ -170,7 +193,7 @@ def vod_generate(*, api: str = "", request: Request,
                 logger.info(f'源路径:{api_path}疑似被恶意加载扩展，超过扩展分发数量{API_DICT_LIMIT}，现在清空储存器')
                 # 初始化过，但是扩展数量超过上限。防止恶意无限刷扩展，删了
                 need_init = True
-                del API_STORE[api]
+                _release_api_store(api)
                 # 设为空字典
                 API_STORE[api] = {}
             else:
@@ -195,7 +218,11 @@ def vod_generate(*, api: str = "", request: Request,
                 vod = Vod(api=api, query_params=request.query_params, t4_api=t4_api).module
             # 记录初始化时间|下次文件修改后判断储存的时间 < 文件修改时间又会重新初始化
             # API_STORE[api] = {'vod': vod, 'time': get_now()}
+            # 替换旧实例前先释放，否则每次重初始化都漏一条线程 + 一块 JS 堆
+            _old = (API_STORE.get(api) or {}).get(extend_store) or {}
             API_STORE[api][extend_store] = {'vod': vod, 'time': get_now()}
+            if _old.get('vod') is not None and _old.get('vod') is not vod:
+                _release_vod(_old.get('vod'))
         else:
             vod = API_STORE[api][extend_store]['vod']
         # 每次请求刷新本地代理地址，避免多地址访问时缓存了旧 host

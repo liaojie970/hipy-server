@@ -31,6 +31,45 @@ class Drpy:
         self.debug = debug
         self.ctx = self.submit(self.initCtx)
 
+    def close(self, delay=60):
+        """
+        释放线程池与 JS 运行时。
+
+        背景: Drpy 每个实例自带一个常驻线程 (ThreadPoolExecutor max_workers=1)
+        和一个 quickjs Context。旧版本从不回收，源被重新初始化(TTL 到期/JS 变更)
+        就会泄漏一条线程 + 一块 JS 堆，进程 RSS 会持续上涨直到被系统杀掉。
+
+        @param delay: 延迟多少秒真正关闭。留出宽限期，避免同一请求里
+                      已取到旧实例的并发调用被立即打断。
+        """
+        ex = getattr(self, 'executor', None)
+        if ex is None:
+            return
+
+        def _do():
+            try:
+                self.executor = None
+                ex.shutdown(wait=False)
+            except Exception:  # noqa
+                pass
+            try:
+                self.ctx = None
+            except Exception:  # noqa
+                pass
+
+        if delay and delay > 0:
+            t = threading.Timer(delay, _do)
+            t.daemon = True
+            t.start()
+        else:
+            _do()
+
+    def __del__(self):
+        try:
+            self.close(delay=0)
+        except Exception:  # noqa
+            pass
+
     def initCtx(self) -> Context:
         base_path = os.path.dirname(__file__)
 
@@ -87,8 +126,11 @@ class Drpy:
         return ctx
 
     def submit(self, function, *args):
+        ex = self.executor
+        if ex is None:
+            raise RuntimeError(f'源实例已释放: {self._api}')
         with self._lock:
-            future = self.executor.submit(function, *args)
+            future = ex.submit(function, *args)
             wait([future])
             return future.result()
 

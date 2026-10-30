@@ -112,6 +112,13 @@ tail -20 ~/hipy/watchdog.log                              # 看门狗日志
 6. **JSON 配置写盘**：`json.dumps(..., ensure_ascii=False, indent=2)` + 末尾换行 +
    `newline='\n'`，否则手机和仓库会来回漂格式。
 7. 手机 kill 后 `ps` 看不到别的域的进程；`/proc/net/tcp`、cgroup 都读不到，别指望定位端口归属。
+8. **`Drpy` 每次重建都会漏线程**：`t4/qjs_drpy/qjs_drpy.py` 里每个实例自带
+   `ThreadPoolExecutor(max_workers=1)` + quickjs Context，旧实例不 `shutdown()` 就是泄漏。
+   已在 `Drpy.close()` / `vod_views._release_vod()` 里修掉（48h 曾涨到 RSS 903MB、线程 413），
+   看门狗也加了 RSS>1200MB / 线程>600 自动重启的兜底。
+9. **`pkill -f xxx.sh` 会把自己那条 SSH 命令也匹配进去**（远程命令字符串里含同样文本），
+   结果是自杀式断连。要带括号避坑：`pkill -f "[_]watchdog.sh"`。
+10. **Termux 时区/时钟正常，但本机会跑偏**：远程命令一律带 `timeout`，别用“等它返回”估算耗时。
 
 ---
 
@@ -136,6 +143,7 @@ tail -20 ~/hipy/watchdog.log                              # 看门狗日志
 | --- | --- |
 | `app/tasks/live_source.py` | 聚合主流程（拉源→去重→测活→频道去重→写 m3u/meta/死链报告） |
 | `app/tasks/live_health.py` | 三级测活 + 台账状态机 + `live_check` 任务 + CLI |
+| `scripts/_watchdog.sh` | 手机看门狗脚本的仓库副本（实际运行在 `~/hipy/_watchdog.sh`）；改完要 scp 回手机 |
 | `app/t4/files/json/live_sources.json` | 源列表与 `check` / `health` / `output` 参数 |
 | `app/t4/files/json/live_health.json` | 台账（`ok/suspect/dead`、失败次数、冷却时间），**不入库、不提交** |
 | `app/t4/files/json/live_dead_report.json` | 死链报告（`#` 注释文本格式，不是合法 JSON） |

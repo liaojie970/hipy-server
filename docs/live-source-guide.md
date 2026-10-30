@@ -578,16 +578,33 @@ SCHEDULER_POOL_SIZE=4
 ```
 
 - 想恢复旧的进程池行为，把 `SCHEDULER_EXECUTOR` 删掉或设为 `process` 即可（PC 端默认仍是进程池）；
-- 另配了看门狗 `_watchdog.sh`：每分钟探一次 `/docs`，连续 3 次不通就重启后端；另外所有任务的下次执行时间都过期 15 分钟以上（调度器罢工）时也会重启。`start_all.sh` 会自动拉起它。
+- 另配了看门狗 `_watchdog.sh`：每分钟探一次 `/docs`，连续 3 次不通就重启后端；另外两个判据也会触发重启：
+  - **调度器罢工**：所有任务的下次执行时间都过期 15 分钟以上；
+  - **资源超限**：后端 RSS > 1200MB 或线程数 > 600（连续 3 次采样），兜住还没挖干净的泄漏。
+  `start_all.sh` 会自动拉起它。
 
 > 同类的另一个坑（会让人误以为「定时任务全坏了」）：在 APScheduler 的事件回调里直接 `remove_job`，本轮末尾它还要 `update_job` 那个已删的任务，抛 `JobLookupError` 会把整个调度循环打断 —— 之后网页和接口都正常，但所有定时任务永远不再执行、`next_run` 冻结在中断时刻。已改为延迟删除 + 事件回调兜异常。
+
+### 7.1.1 后端内存/线程泄漏（drpy 源重复初始化）
+
+2026-10-30 实测：后端连续跑 48h 后 RSS 从 119MB 涨到 903MB、线程 413 个，手机可用内存只剩 970MB（再跑一天就会被系统杀掉）。
+
+根因在 `app/t4/qjs_drpy/qjs_drpy.py`：每个 `Drpy` 实例都自带一个常驻线程池（`ThreadPoolExecutor(max_workers=1)`）和一个 quickjs Context；而 `app/apps/vod/vod_views.py` 在「源缓存 TTL 到期（默认 2h）/ JS 文件变更 / 扩展数量超限 / 带 `nocache` 参数」时会重新 `Drpy(...)` 覆盖旧对象，旧实例从来不 `shutdown()` → **每次重建漏 1 条线程 + 一块 JS 堆**。日志里 `需要初始化源` 在 48h 内出现 629 次，与泄漏量同量级。
+
+修法：
+
+- `Drpy.close(delay=60)`：延迟 60s 再 `executor.shutdown(wait=False)` 并丢弃 ctx；留宽限期是为了不打断同一请求内已取到旧实例的并发调用。`__del__` 也会兜一下。
+- `vod_views` 在「替换旧实例」和「清空 `API_STORE[api]`」时先 `_release_vod()` / `_release_api_store()`。
+- 兜底：看门狗的内存/线程守卫（见 7.1）。
+
+修完实测：强制 `nocache=1` 连续重建 6 次，线程 5 → 6/8/10/12/14/16（每次 +2：新实例线程 + 60s 延迟关闭的 Timer），70s 后回落 5~7，RSS 稳定在 150MB 上下。
 
 ### 7.2 测活的并发与守卫
 
 | 参数 | 作用 |
 | --- | --- |
 | `check.workers` | 测活并发。手机上默认降到 8（原 16），避免把家用宽带上行打满造成大面积误判。 |
-| `check.timeout` | 单条超时，手机上放宽到 10s。 |
+| `check.timeout` | 单条超时，手机上放宽到 12s（`延边卫视` 这类线路实测 3~8s，10s 太贴边）。 |
 | `health.max_drop_ratio` | 单轮剔除比例上限（默认 0.5）。超过就认为「本机网络异常」而不是「线路全死」。 |
 | `json/.live_check.lock` | 文件锁，`live_source` 和 `live_check` 共用，保证同一时刻只有一轮测活。 |
 
@@ -612,7 +629,7 @@ SCHEDULER_POOL_SIZE=4
 | `app/tasks/live_source.py` | 下载、解析、去重、补台标、缓存台标/EPG、测活、输出 |
 | `app/tasks/live_health.py` | 三级测活 + 台账 + 软删状态机 + 同票折叠 + host 熔断；`live_check` 任务本体 |
 | `app/common/sys_schedule.py` | 定时任务调度器；`SCHEDULER_EXECUTOR=process/thread` 决定用进程池还是线程池 |
-| `_watchdog.sh`（`~/hipy/`） | 后端探活看门狗：/docs 连续 3 次不通就重启后端，`start_all.sh` 自动拉起 |
+| `_watchdog.sh`（`~/hipy/`） | 后端探活看门狗：/docs 连续 3 次不通、调度器罢工、内存/线程超限（默认 1200MB / 600 线程）都会重启后端，`start_all.sh` 自动拉起；仓库副本在 `scripts/_watchdog.sh` |
 | `app/tasks/tv_spider.py` | 旧 TV 源抓取；行为由 `t4/files/json/tv_spider.json` 控制（默认不写 mytv.txt） |
 | `app/db/migrate_live_source.py` | 注册 `live_source` 定时任务（幂等） |
 | `app/db/migrate_live_health.py` | 注册 `live_check` 定时任务（幂等） |

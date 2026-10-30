@@ -55,7 +55,7 @@
   "check": {
     "enabled": true,
     "deep": true,
-    "timeout": 10,
+    "timeout": 12,
     "workers": 8,
     "keep_untestable": true,
     "keep_suspect": true,
