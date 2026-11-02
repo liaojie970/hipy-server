@@ -9,6 +9,7 @@ import json
 import ujson
 import os
 import re
+import time
 
 from fastapi import APIRouter, Request, Depends, Response, Query, File, UploadFile
 from fastapi.responses import RedirectResponse
@@ -45,6 +46,10 @@ API_STORE = {
 }
 # 扩展储存同api分发不同ext扩展的上限。超过这个上限清空储存
 API_DICT_LIMIT = 5
+# 同时缓存的源文件个数上限（LRU）。每个 drpy 源实例常驻 1 条线程 + 一块 quickjs
+# 运行时（实测 ~5MB），手机上没有上限就会随着「浏览过的源变多」一路涨到 OOM。
+API_STORE_MAX = int(os.getenv('VOD_API_STORE_MAX') or 32)
+API_STORE_USE = {}
 
 
 def _release_vod(vod) -> None:
@@ -68,6 +73,21 @@ def _release_api_store(api) -> None:
     for item in list(store.values()):
         if isinstance(item, dict):
             _release_vod(item.get('vod'))
+
+
+def _evict_api_store(keep=None) -> None:
+    """源缓存 LRU 淘汰：最多同时缓存 API_STORE_MAX 个源，超过就释放最久未用的。"""
+    if API_STORE_MAX <= 0:
+        return
+    while len(API_STORE) > API_STORE_MAX:
+        victims = [k for k in API_STORE if k != keep]
+        if not victims:
+            return
+        victims.sort(key=lambda k: API_STORE_USE.get(k, 0))
+        old = victims[0]
+        logger.info(f'源缓存超上限({API_STORE_MAX})，淘汰最久未用的源: {old}')
+        _release_api_store(old)
+        API_STORE_USE.pop(old, None)
 
 
 # u: Users = Depends(deps.user_perm([f"{access_name}:get"]))
@@ -185,6 +205,8 @@ def vod_generate(*, api: str = "", request: Request,
             need_init = True
             # 设为空字典
             API_STORE[api] = {}
+            # 新源入库前先按 LRU 淘汰，避免浏览源越多内存越大
+            _evict_api_store(keep=api)
         else:
             _api_dict = API_STORE[api] or {}
             _apis = _api_dict.keys()
@@ -225,6 +247,8 @@ def vod_generate(*, api: str = "", request: Request,
                 _release_vod(_old.get('vod'))
         else:
             vod = API_STORE[api][extend_store]['vod']
+        # 记录最近使用时间，供 LRU 淘汰参考
+        API_STORE_USE[api] = time.time()
         # 每次请求刷新本地代理地址，避免多地址访问时缓存了旧 host
         if hasattr(vod, 't4_api'):
             vod.t4_api = t4_api

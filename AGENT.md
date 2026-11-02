@@ -79,10 +79,12 @@ tail -20 ~/hipy/watchdog.log                              # 看门狗日志
 - 后端脚本：`start_all.sh`（含看门狗第 5 步）、`start_backend.sh`、`_restart.sh`、
   `_watchdog.sh`、`_fix.sh`（设好 HOME/PREFIX/PY/PATH，跑 python 用它包一层：
   `bash ~/hipy/_fix.sh python -m tasks.live_health --stats`）。
-- 看门狗：60s 探一次 `/docs`，连续 3 次非 200 → `pkill` + 重启；另外**所有任务的下次
-  执行时间都过期 15 分钟以上**（调度器罢工）也重启。
+- 看门狗：60s 探一次 `/docs`，连续 3 次非 200 → `pkill` + 重启；另外两个判据也重启：
+  **所有任务的下次执行时间都过期 15 分钟以上**（调度器罢工）、**RSS>1200MB 或线程>600**（泄漏）。
 - **改完 Python 代码必须重启后端才生效**：`_format_fun` 用 `importlib.import_module`，
   已加载的模块不会重新读盘。
+- ⚠️ **重启后端会触发调度器“错过任务补跑”**：可能额外跑一轮 `live_source`（5~12 分钟、
+  700+ 条探测）和 `tv_spider`。调试时不要在任务窗口内反复重启。
 
 ---
 
