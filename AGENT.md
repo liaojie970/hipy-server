@@ -53,7 +53,10 @@ scp -F ~/.ssh/config app/tasks/live_health.py hipy:~/hipy/app/tasks/live_health.
 ssh -F ~/.ssh/config hipy 'md5sum ~/hipy/app/tasks/live_health.py'
 ```
 
-- `~/.ssh/config` 里已配好 `Host hipy`（IP、8022、`id_ed25519_hipy`），所以命令里只要写 `hipy`。
+- `~/.ssh/config` 里已配好 `Host hipy`（IP 写死 `192.168.1.101`、8022、`id_ed25519_hipy`），所以命令里只要写 `hipy`。
+  **连不上先判断是哪一端变了**：本机 `ipconfig` 若不在 `192.168.1.x`（例如换到 `192.168.119.x`，
+  2026-11-05 就发生过），就是电脑换了网，手机没坏；反之则手机换了 IP。
+  手机上 `date` 显示 GMT 正常；`adb devices` 只有 `emulator-5554` 时那条命令的时间是模拟器的，别当依据。
 - **传完必须核对 md5**：Windows 上是 CRLF，手机上是 LF，比较前先
   `sed -i "s/\r$//" <file>` 或本地 `sed 's/\r$//' file | md5sum`。
 - 只有在 SSH 完全不可用时才退回 adb 直推：
@@ -116,8 +119,14 @@ tail -20 ~/hipy/watchdog.log                              # 看门狗日志
 7. 手机 kill 后 `ps` 看不到别的域的进程；`/proc/net/tcp`、cgroup 都读不到，别指望定位端口归属。
 8. **`Drpy` 每次重建都会漏线程**：`t4/qjs_drpy/qjs_drpy.py` 里每个实例自带
    `ThreadPoolExecutor(max_workers=1)` + quickjs Context，旧实例不 `shutdown()` 就是泄漏。
-   已在 `Drpy.close()` / `vod_views._release_vod()` 里修掉（48h 曾涨到 RSS 903MB、线程 413），
-   看门狗也加了 RSS>1200MB / 线程>600 自动重启的兜底。
+   已在 `Drpy.close()` / `vod_views._release_vod()` 里修掉（48h 曾涨到 RSS 903MB、线程 413）。
+   **光有 `close()` 不够**：`API_STORE` 源缓存本身也必须封顶——每个缓存源 ≈4.7MB + 1 线程，
+   不上限时“把 392 个源都点一遍”就是 1.8GB（第一阶修完 70h 又涨到 1290MB/353 线程就是这个原因）。
+   现有 `API_STORE_MAX`（默认 32，`VOD_API_STORE_MAX` 可调）+ LRU 淘汰。
+   **稳定态基准（2026-11-05 实测）**：连续 72h 不重启 → RSS `186MB` / 线程 `29`
+   （12 基础 + 17 缓存），极限上限 `12 + 32 = 44` 线程。
+   以后若 RSS 又持续爬升，说明另有分配点（不是源缓存），要重查；
+   看门狗 RSS>1200MB / 线程>600 连续 3 次仍会自动重启兜底。
 9. **`pkill -f xxx.sh` 会把自己那条 SSH 命令也匹配进去**（远程命令字符串里含同样文本），
    结果是自杀式断连。要带括号避坑：`pkill -f "[_]watchdog.sh"`。
 10. **Termux 时区/时钟正常，但本机会跑偏**：远程命令一律带 `timeout`，别用“等它返回”估算耗时。
