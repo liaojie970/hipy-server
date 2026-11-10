@@ -154,6 +154,45 @@ def _job_listener_impl(Event):
     if obj_in.get('run_info') and obj_in['run_info'] != str(None):
         curd_job_log.create(db, obj_in=obj_in)
 
+    # 把调度器里的真实下次执行时间回写到 t_job.next_run。
+    #
+    # 不写会怎样：t_job.next_run 只在「新建/编辑任务」时被赋一次值，之后永远不再更新。
+    #   1) UI 的定时任务列表显示的是几天前的时间；
+    #   2) 更要命的是重启时 JobInit._automatic_task 会拿这个过期值跟 now 比，判定
+    #      「已错过」→ 启动几秒后立刻补跑。表现就是「每次部署/重启，live_check 和大批量
+    #      探测都被莫名其妙地重跑一轮」，排查时极易误判成调度器异常。
+    #
+    # 时机是安全的：APScheduler 在 _process_jobs 里已先把 job.next_run_time 推进到下一次
+    # 再发事件，所以这里读到的就是下次时间；任务被 _defer_remove 时该字段为 None，跳过不写。
+    _sync_next_run(db, db_job, job)
+
+    try:
+        db.close()
+    except Exception:  # noqa
+        pass
+
+
+def _sync_next_run(db, db_job, job):
+    """把 scheduler 中 job 的 next_run_time 写回 t_job.next_run（失败不影响调度）。"""
+    try:
+        if db_job is None or job is None:
+            return
+        next_run_time = getattr(job, 'next_run_time', None)
+        if next_run_time is None:
+            return  # 一次性任务/已摘除的任务没有下次
+        if next_run_time.tzinfo is not None:
+            next_run_time = next_run_time.replace(tzinfo=None)
+        if db_job.next_run == next_run_time:
+            return
+        db_job.next_run = next_run_time
+        db.commit()
+    except Exception as e:  # noqa
+        logger.info(f'回写下次执行时间失败(忽略):{e}')
+        try:
+            db.rollback()
+        except Exception:  # noqa
+            pass
+
 
 # 注册scheduler
 def scheduler_register():
@@ -422,8 +461,17 @@ class JobInit:
                 active_job.status = 1
                 active_job.next_run = active_job_next_run
                 add_list.append(active_job)
-                logger.info(
-                    f'定时任务【{active_job.job_id}:{active_job.job_name}】将在{settings.JOB_DELTA}秒钟后运行.下次执行时间为:{active_job_next_run}')
+                # 区分「正常就绪」与「已错过补跑」：两者都走这条路径，但含义完全不同。
+                # 历史上不管哪种都打印「将在{JOB_DELTA}秒钟后运行」，导致每次重启都被误认为
+                # 所有任务在补跑（实际大多数只是正常等下一次），排查时白费很多时间。
+                if next_run < now_next:
+                    logger.info(
+                        f'定时任务【{active_job.job_id}:{active_job.job_name}】已错过计划时间 {next_run}, '
+                        f'将在 {max(int((active_job_next_run - now).total_seconds()), 0)} 秒后补跑')
+                else:
+                    logger.info(
+                        f'定时任务【{active_job.job_id}:{active_job.job_name}】已就绪, '
+                        f'下次执行时间为 {active_job_next_run}')
 
             except Exception as e:
                 logger.info(f'改变任务状态发生错误:{e}')

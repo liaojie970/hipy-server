@@ -146,6 +146,33 @@ tail -20 ~/hipy/watchdog.log                              # 看门狗日志
   `python -c "import sqlite3;c=sqlite3.connect('db/hipy.db');c.execute('update t_job set cron_expression=? where job_id=?',('0 45 3 * * ?','tv_spider'));c.commit()"`
 - 改完要重启后端才会按新 cron 装载。
 
+### 6.1 `t_job.next_run` 必须由调度器回写（否则每次重启都误补跑）
+
+`t_job.next_run` 只在「新建/编辑任务」时被赋一次值。如果任务正常跑完后不回写，它会永远停在
+几天前的时间，后果有两个：
+
+1. UI 的定时任务列表显示错误的下次执行时间；
+2. 更坑的是启动时 `JobInit._automatic_task` 拿它跟 `now` 比：
+   ```python
+   active_job_next_run = now_next if next_run < now_next else next_run
+   ```
+   过期值 < now_next → 判定「已错过」→ **启动十几秒后立刻补跑**。表现是「每次部署/重启，
+   `live_check` 都会莫名其妙重跑一轮，`tv_spider` 也跟着跑」，很容易误判成调度器异常。
+
+修法：`task_apscheduler.py` 的 `job_listener` 结尾调 `_sync_next_run(db, db_job, job)`，把调度器里
+真实的 `job.next_run_time` 写回 `t_job.next_run`。时机是安全的——APScheduler 在 `_process_jobs`
+里已先把 `next_run_time` 推进到下一次再发事件；任务被 `_defer_remove` 时该字段为 `None`，跳过不写。
+
+验证方法（重启两次，看两次的区别）：
+
+```bash
+# 1) 确认 DB 值在滚动
+python -c "import sqlite3;[print(r) for r in sqlite3.connect('app/db/hipy.db').execute('select job_id,next_run from t_job where active=1')]"
+# 2) 重启后看日志，应该是「已就绪, 下次执行时间为 <未来时间>」
+#    而不是「将在10秒钟后运行」+ 紧跟着一条 live_health 开始测活
+grep -a "已就绪\|已错过计划时间" app/log/info.log | tail -5
+```
+
 ---
 
 ## 7. 直播源/测活关键文件
